@@ -1,0 +1,76 @@
+# CI — typecheck + 单元测试 + 可选 probe smoke
+#
+# 两个 job:
+#   1. ci:每 push / PR 跑;只做 typecheck + vitest(无 backend 依赖)
+#   2. probe:仅当 secrets.SMARTBI_TOKEN 配置 + 手动 dispatch / 标签触发;
+#      跑 probe-baseline + probe-final 验证后端 schema 没漂移
+#
+# probe job 是可选的 staging smoke,失败不阻止 merge(continue-on-error)
+# — 但日志里能看到漂移,便于联调阶段提早发现。
+
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch: # 手动触发(probe job 用)
+
+jobs:
+  ci:
+    name: typecheck + tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - name: TypeScript strict check
+        run: npm run typecheck
+      - name: Unit tests
+        run: npm test
+      - name: Coverage(可选,失败不阻断)
+        run: npm run test:coverage
+        continue-on-error: true
+
+  probe:
+    name: backend probe (smoke,可选)
+    # 仅当配置了 token + 手动触发(避免 PR 把 staging 打爆)
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    needs: ci
+    continue-on-error: true # 后端 schema 漂移不阻断 merge,只警告
+    env:
+      SMARTBI_TOKEN: ${{ secrets.SMARTBI_TOKEN }}
+      SMARTBI_BASE: ${{ secrets.SMARTBI_BASE || 'http://10.10.202.100:28082/smartbi/smartbix' }}
+      SMARTBI_MODEL_ID: ${{ secrets.SMARTBI_MODEL_ID || 'I8a8aa3ed018ff259f259763901900f943a901c9a' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - name: Skip if no token
+        if: env.SMARTBI_TOKEN == ''
+        run: |
+          echo "::warning::SMARTBI_TOKEN 没配置,跳过 probe smoke"
+          exit 0
+      - name: Probe baseline(基础 PivotQuery)
+        if: env.SMARTBI_TOKEN != ''
+        run: npx tsx scripts/probe-baseline.ts
+      - name: Probe customElements final(3 cases:enum show/merge + range)
+        if: env.SMARTBI_TOKEN != ''
+        run: npx tsx scripts/probe-final.ts
+      - name: Probe calc_measure(3 cases:除/加/混合)
+        if: env.SMARTBI_TOKEN != ''
+        run: npx tsx scripts/probe-calc-final.ts
+      - name: Probe edge cases(prefix / includeMin/Max)
+        if: env.SMARTBI_TOKEN != ''
+        run: npx tsx scripts/probe-edge-cases.ts
+      - name: Probe adhoc(DetailQuery + isCrossTable)
+        if: env.SMARTBI_TOKEN != ''
+        run: npx tsx scripts/probe-adhoc-cross.ts

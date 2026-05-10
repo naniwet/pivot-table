@@ -1,0 +1,517 @@
+/**
+ * DropZones — 四象限拖拽承载区
+ *
+ * 设计：
+ *   - 仅负责"渲染当前 viewConfig + 接收拖拽 + 触发 callback"，不管 viewConfig 内部状态
+ *   - 拖拽合法性由 canDrop（dropRules）判定，宿主在 onDrop 中自行 dispatch（一般经 useViewConfig 的 DROP_FIELD action）
+ *   - draggingFieldType 由父组件维护并传入（用于实时 highlight/grey）
+ *   - drop 携带的 fieldName/fieldType 通过 HTML5 dataTransfer 还原（dragProtocol.ts）
+ *
+ * 不做：
+ *   - 区内字段重排（P1.5）
+ *   - filter zone 实际筛选（P0：display only）
+ */
+import { Fragment, useMemo, useRef, useState } from 'react';
+import type { CSSProperties, DragEvent, ReactNode } from 'react';
+
+import {
+  decodePivotField,
+  encodePivotField,
+  PIVOT_FIELD_MIME,
+} from '../../core/dropRules/dragProtocol.js';
+import { canDrop, type DropZone, type FieldType } from '../../core/dropRules/dropRules.js';
+import { buildMetadataIndex } from '../../core/metadata/fieldIndex.js';
+import { computeViewMode } from '../../core/viewMode/viewMode.js';
+import { getAggregatorLabel } from '../../core/viewConfig/aggregators.js';
+import {
+  findQuickCalcOption,
+  formatMeasureDisplayLabel,
+  getMeasureFieldName,
+} from '../../core/viewConfig/quickCalcs.js';
+import {
+  MEASURE_AXIS_FIELD_NAME,
+  isMeasureAxisField,
+} from '../../core/queryBuilder/measureAxis.js';
+import type { Metadata } from '../../types/metadata.js';
+import type { QuickCalculation } from '../../types/query.js';
+import type { ViewConfig } from '../../types/viewConfig.js';
+
+export interface DropZonesProps {
+  viewConfig: ViewConfig;
+  metadata: Metadata;
+  /** 父组件维护：拖拽进行中的字段类型（用于 highlight）；未拖拽时 null/undefined */
+  draggingFieldType?: FieldType | null;
+  onDrop: (
+    zone: DropZone,
+    fieldName: string,
+    fieldType: FieldType,
+    insertIdx?: number,
+    /** P3+ chip 内部拖动用:sourceZone + chipKey 用于精确 reorder */
+    extra?: { sourceZone?: DropZone; chipKey?: string },
+  ) => void;
+  onRemove: (zone: DropZone, fieldName: string) => void;
+  /** P1.0：设置 measure 的 quickCalc（来自数值区 tag 上的菜单） */
+  onSetQuickCalc?: (measureName: string, quickCalc: QuickCalculation | null) => void;
+  /**
+   * P1.5：zone 内字段顺序调整（上/下移一格）
+   * 主要用于：cross-table 列轴调整层次（品类组放第一→顶层合并）
+   */
+  onMove?: (zone: DropZone, fieldName: string, direction: 'up' | 'down') => void;
+  /**
+   * P2 UI: 父级追踪正在 zone 间拖动的字段类型（用于 highlight 目标 zone）
+   * 与字段树 dragStart 共用同一个 setDraggingFieldType 回调即可。
+   */
+  onTagDragStart?: (fieldType: FieldType) => void;
+  /**
+   * P2: chip 右键事件 — 父级渲染统一的 ContextMenu（排序 / 移动 / 快速计算 / 删除）
+   * 不传则 chip 不响应右键。
+   */
+  onTagContextMenu?: (event: {
+    zone: DropZone;
+    fieldName: string;
+    fieldType: FieldType;
+    x: number;
+    y: number;
+  }) => void;
+  /** P3: 行列互换按钮回调;不传则不渲染该按钮 */
+  onSwapRowsColumns?: () => void;
+  className?: string;
+  style?: CSSProperties;
+}
+
+/** P2: chip 上展示当前排序状态的 4 种箭头 */
+const SORT_ARROW: Record<string, string> = {
+  ASC: '↑',
+  DESC: '↓',
+  BASC: '↑组',
+  BDESC: '↓组',
+};
+
+const ZONE_LABELS: Record<DropZone, string> = {
+  row: '行轴',
+  column: '列轴',
+  value: '数值',
+  filter: '筛选',
+};
+
+interface FieldTag {
+  /** chip 唯一标识(用于 React key / remove / 右键菜单);value zone 是 encoded full name */
+  name: string;
+  /** 跨 zone 拖动时编码到 dataTransfer 的 fieldName(value zone 用 base measureName) */
+  dragFieldName: string;
+  alias: string;
+  /** P2: 字段类型（zone 间互拖用 — encodePivotField 需要 fieldType） */
+  fieldType: FieldType;
+  /** value zone 用：当前 quickCalc 的业务名（"占行总计 %" 等）；为 null/undefined 时不显示 */
+  quickCalcLabel?: string | null;
+  /** P2: 当前排序方向（4 种之一，或 null 表示未参与排序） */
+  sortDirection?: 'ASC' | 'DESC' | 'BASC' | 'BDESC' | null;
+  /**
+   * P5+ 当前 chip 在该 mode 下不生效(灰显 + tooltip 提示)。
+   * 典型场景:adhoc 模式下度量过滤器 — 后端 DetailQuery 不解析 measureFilters,
+   *   chip 还在(切回 pivot 时保留意图),但视觉上明确"暂时不可用"。
+   * 注:disabled 不影响交互(还能 × 删 / 右键菜单),只影响视觉。
+   */
+  disabled?: boolean;
+  /** disabled 时悬停 tooltip 文本 */
+  disabledReason?: string;
+}
+
+/**
+ * 根据鼠标位置 + zone 内 chip refs 算落点 idx(0..fields.length)。
+ *
+ * 策略:找鼠标距离最近的 chip 中心,鼠标在它左边 → idx=该 chip;右边 → idx+1。
+ *   - 兼容 wrap 多行(用 2D 距离,自动按行就近)
+ *   - 没有 chip 时返回 0
+ */
+function computeInsertIdx(
+  e: DragEvent<HTMLDivElement>,
+  tagsContainer: HTMLDivElement | null,
+): number {
+  if (!tagsContainer) return 0;
+  const chips = Array.from(
+    tagsContainer.querySelectorAll<HTMLElement>('[data-field-tag]'),
+  );
+  if (chips.length === 0) return 0;
+  const my = e.clientY;
+  // chip 现在垂直排列(每行一个),用 Y 轴判断"插入到哪一项之前/之后"
+  let nearestIdx = 0;
+  let nearestDist = Infinity;
+  chips.forEach((chip, i) => {
+    const r = chip.getBoundingClientRect();
+    const cy = r.top + r.height / 2;
+    const d = Math.abs(cy - my);
+    if (d < nearestDist) {
+      nearestDist = d;
+      nearestIdx = i;
+    }
+  });
+  const r = chips[nearestIdx]!.getBoundingClientRect();
+  const cy = r.top + r.height / 2;
+  return my < cy ? nearestIdx : nearestIdx + 1;
+}
+
+function ZoneView({
+  zone,
+  fields,
+  draggingFieldType,
+  queryMode,
+  onDrop,
+  onRemove,
+  onTagDragStart,
+  onTagContextMenu,
+}: {
+  zone: DropZone;
+  fields: FieldTag[];
+  draggingFieldType: FieldType | null | undefined;
+  queryMode: 'pivot' | 'adhoc';
+  onDrop: DropZonesProps['onDrop'];
+  onRemove: DropZonesProps['onRemove'];
+  onTagDragStart?: DropZonesProps['onTagDragStart'];
+  onTagContextMenu?: DropZonesProps['onTagContextMenu'];
+}): ReactNode {
+  const allows = draggingFieldType ? canDrop(draggingFieldType, zone, queryMode) : null;
+  const label = ZONE_LABELS[zone];
+  const tagsRef = useRef<HTMLDivElement>(null);
+  const [dropTargetIdx, setDropTargetIdx] = useState<number | null>(null);
+
+  const handleDragOver = (e: DragEvent<HTMLDivElement>) => {
+    if (!draggingFieldType) return;
+    if (!canDrop(draggingFieldType, zone, queryMode)) return;
+    e.preventDefault(); // 标准：preventDefault 表示允许 drop
+    e.dataTransfer.dropEffect = 'move';
+    const idx = computeInsertIdx(e, tagsRef.current);
+    if (idx !== dropTargetIdx) setDropTargetIdx(idx);
+  };
+
+  const handleDragLeave = (e: DragEvent<HTMLDivElement>) => {
+    // 只在离开 zone 整体时清(rel target 不在 zone 内)— 避免 chip 间穿越触发误清
+    const rel = e.relatedTarget as Node | null;
+    if (rel && e.currentTarget.contains(rel)) return;
+    setDropTargetIdx(null);
+  };
+
+  const handleDrop = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const idx = dropTargetIdx;
+    setDropTargetIdx(null);
+    const raw = e.dataTransfer.getData(PIVOT_FIELD_MIME);
+    const payload = decodePivotField(raw);
+    if (!payload) return;
+    if (!canDrop(payload.fieldType, zone, queryMode)) return;
+    onDrop(zone, payload.fieldName, payload.fieldType, idx ?? undefined, {
+      sourceZone: payload.sourceZone,
+      chipKey: payload.chipKey,
+    });
+  };
+
+  const dataAttrs: Record<string, string> = {};
+  if (allows !== null) dataAttrs['data-can-drop'] = String(allows);
+
+  return (
+    <div
+      className={`dropzone dropzone--${zone}`}
+      data-testid={`zone-${zone}`}
+      data-zone={zone}
+      title={
+        allows === false && draggingFieldType
+          ? `${draggingFieldType} 不能放入 ${label}`
+          : undefined
+      }
+      {...dataAttrs}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      <div className="dropzone__label">{label}</div>
+      <div className="dropzone__tags" ref={tagsRef} data-empty={fields.length === 0 ? 'true' : 'false'}>
+        {fields.length === 0 && (
+          <span className="dropzone__placeholder" aria-hidden>
+            + 拖字段或右键添加
+          </span>
+        )}
+        {fields.map((f, i) => (
+          <Fragment key={f.name}>
+            <span
+              className="dropzone__drop-indicator"
+              data-testid={`drop-indicator-${zone}-${i}`}
+              data-active={dropTargetIdx === i ? 'true' : 'false'}
+              aria-hidden
+            />
+            <span
+              className="dropzone__tag"
+              data-field-tag={f.name}
+              data-sort-direction={f.sortDirection ?? undefined}
+              data-disabled={f.disabled ? 'true' : undefined}
+              draggable
+              title={f.disabled && f.disabledReason ? f.disabledReason : '右键打开菜单(排序 / 移动 / 快速计算 / 删除)'}
+              onDragStart={(e) => {
+                try {
+                  // 跨 zone 拖动:fieldName 用 dragFieldName(value zone 是 base measureName,其他 zone 同 name)
+                  // 内部 reorder 用:sourceZone + chipKey(value zone chip 唯一标识)
+                  e.dataTransfer.setData(
+                    PIVOT_FIELD_MIME,
+                    encodePivotField({
+                      fieldName: f.dragFieldName,
+                      fieldType: f.fieldType,
+                      sourceZone: zone,
+                      chipKey: f.name,
+                    }),
+                  );
+                  e.dataTransfer.effectAllowed = 'move';
+                } catch {
+                  // jsdom 等环境无 dataTransfer，忽略；callback 仍触发
+                }
+                onTagDragStart?.(f.fieldType);
+              }}
+              onContextMenu={(e) => {
+                if (!onTagContextMenu) return;
+                e.preventDefault();
+                e.stopPropagation();
+                onTagContextMenu({
+                  zone,
+                  fieldName: f.name,
+                  fieldType: f.fieldType,
+                  x: e.clientX,
+                  y: e.clientY,
+                });
+              }}
+            >
+              {f.alias}
+              {/* 排序状态箭头：4 种之一（仅在该字段参与排序时显示）*/}
+              {f.sortDirection && (
+                <span
+                  className="dropzone__tag-sort"
+                  data-testid={`tag-sort-${f.name}`}
+                  title={`当前排序：${
+                    f.sortDirection === 'ASC'
+                      ? '升序'
+                      : f.sortDirection === 'DESC'
+                        ? '降序'
+                        : f.sortDirection === 'BASC'
+                          ? '分组内升序'
+                          : '分组内降序'
+                  }`}
+                >
+                  {SORT_ARROW[f.sortDirection]}
+                </span>
+              )}
+              {f.quickCalcLabel && (
+                <span className="dropzone__tag-suffix" title={f.quickCalcLabel}>
+                  {' '}({f.quickCalcLabel})
+                </span>
+              )}
+              <button
+                type="button"
+                className="dropzone__remove"
+                data-testid={`remove-${zone}-${f.name}`}
+                aria-label={`移除 ${f.alias}`}
+                onClick={() => onRemove(zone, f.name)}
+              >
+                ×
+              </button>
+            </span>
+          </Fragment>
+        ))}
+        {/* 末尾 indicator(idx=fields.length 即"插到末尾"位置) */}
+        <span
+          className="dropzone__drop-indicator"
+          data-testid={`drop-indicator-${zone}-${fields.length}`}
+          data-active={dropTargetIdx === fields.length ? 'true' : 'false'}
+          aria-hidden
+        />
+      </div>
+    </div>
+  );
+}
+
+export function DropZones({
+  viewConfig,
+  metadata,
+  draggingFieldType,
+  onDrop,
+  onRemove,
+  onTagDragStart,
+  onTagContextMenu,
+  onSwapRowsColumns,
+  className,
+  style,
+}: DropZonesProps) {
+  const idx = useMemo(() => buildMetadataIndex(metadata), [metadata]);
+  // alias 优先级:metadata 字段 alias → customField.name(自建字段)→ 字段名(兜底)
+  const customNameById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const cf of viewConfig.customFields) m.set(cf.id, cf.name);
+    return m;
+  }, [viewConfig.customFields]);
+  const aliasOf = (name: string): string =>
+    idx.findByName(name)?.alias ?? customNameById.get(name) ?? name;
+
+  // P2: 字段当前排序方向（用于 chip 上的状态箭头）
+  const sortDirOf = (fieldName: string): FieldTag['sortDirection'] => {
+    for (const s of viewConfig.rowSorts) {
+      const matches =
+        (s.type === 'ByMeasure' && s.measureName === fieldName) ||
+        (s.type === 'ByDimension' && s.fieldName === fieldName);
+      if (matches) return s.direction;
+    }
+    return null;
+  };
+
+  // 是否已显式放置度量轴占位字段（在 rows 或 columns 任意一处）？
+  const measureAxisInRows = viewConfig.rows.some(isMeasureAxisField);
+  const measureAxisInColumns = viewConfig.columns.some(isMeasureAxisField);
+  const measureAxisExplicit = measureAxisInRows || measureAxisInColumns;
+
+  // RowField/ColumnField 的 type 是 RowColFieldType（'Hierarchy'/'Dimension'/'CalcGroup'/'NamedSet'/...），
+  // 与 dropRules 的 FieldType 名称一致；直接当 FieldType 用。
+  const rowFields: FieldTag[] = viewConfig.rows.map((r) => ({
+    name: r.fieldName,
+    dragFieldName: r.fieldName,
+    alias: isMeasureAxisField(r) ? 'Σ 度量名称' : aliasOf(r.fieldName),
+    fieldType: r.type as FieldType,
+  }));
+  const columnFields: FieldTag[] = viewConfig.columns.map((c) => ({
+    name: c.fieldName,
+    dragFieldName: c.fieldName,
+    alias: isMeasureAxisField(c) ? 'Σ 度量名称' : aliasOf(c.fieldName),
+    fieldType: c.type as FieldType,
+  }));
+  // 用户没显式拖动 → 在列轴末尾**隐式**显示一个 Σ chip（占位，告诉用户度量在列）
+  // 拖到行后 viewConfig 真正记录此字段（implicit → explicit）
+  if (!measureAxisExplicit && viewConfig.values.length > 0) {
+    columnFields.push({
+      name: MEASURE_AXIS_FIELD_NAME,
+      dragFieldName: MEASURE_AXIS_FIELD_NAME,
+      alias: 'Σ 度量名称',
+      fieldType: 'MeasureGroupName',
+    });
+  }
+  // P3+ value zone:同 measureName + 不同 aggregator/quickCalc 是不同 chip。
+  //   chip 标识用 encoded full name = getMeasureFieldName(v),保证 React key / remove / 右键菜单都精确到单 chip。
+  //   显示别名用 baseAlias + (aggregator label, quickCalc label) 后缀。
+  //   跨 zone 拖动用 base measureName(其他 zone 不认 encoded 名)。
+  const valueFields: FieldTag[] = viewConfig.values.map((v) => {
+    const qcLabel = v.quickCalc
+      ? (findQuickCalcOption((v.quickCalc as { _enum: string })._enum)?.label ?? null)
+      : null;
+    const aggLabel = v.aggregator ? getAggregatorLabel(v.aggregator) : null;
+    return {
+      name: getMeasureFieldName(v),
+      dragFieldName: v.measureName,
+      alias: formatMeasureDisplayLabel(aliasOf(v.measureName), qcLabel, aggLabel),
+      // value zone 的字段统一按 Measure 处理(measureName → Measure / CalcMeasure,
+      // 拖到行/列的 dropRules 会拒绝,预期行为正确)
+      fieldType: 'Measure' as FieldType,
+      quickCalcLabel: null, // 已 inline 到 alias,不再单独显示
+    };
+  });
+  // 派生 mode flag(单源 — computeViewMode);adhoc 下 measureFilter 灰显,zone 显示规则 等都用它
+  const viewMode = computeViewMode(viewConfig);
+  const isAdhocMode = viewMode.isAdhoc;
+
+  // P1.0:filter zone 渲染 ClientFilter 维度 leaf + MeasureFilter 度量
+  const filterFields: FieldTag[] = [
+    ...viewConfig.filters
+      .filter((f) => f.kind === 'leaf')
+      .map((f) => {
+        const fName = (f as { field: string }).field;
+        return {
+          name: fName,
+          dragFieldName: fName,
+          alias: aliasOf(fName),
+          // 维度 filter 默认 'Dimension'(实际 type 不影响拖到 row/column,dropRules 一致)
+          fieldType: 'Dimension' as FieldType,
+        };
+      }),
+    // 度量过滤:仅 leaf 节点显示在 DropZones 的 filter 区(group 在 FilterPanel 上方有专门 chip)
+    ...viewConfig.measureFilters
+      .filter(
+        (mf): mf is Extract<typeof mf, { measureName: string }> =>
+          !('kind' in mf) || mf.kind === 'leaf' || mf.kind === undefined,
+      )
+      .map((mf): FieldTag => ({
+        name: mf.measureName,
+        dragFieldName: mf.measureName,
+        alias: aliasOf(mf.measureName),
+        fieldType: 'Measure' as FieldType,
+        // adhoc 模式下度量过滤不生效 → 灰显
+        disabled: isAdhocMode,
+        disabledReason: isAdhocMode
+          ? '即席查询(明细)模式不支持度量过滤;切回透视模式生效'
+          : undefined,
+      })),
+  ];
+
+  // 给所有 chip 附上当前排序方向
+  const annotate = (fields: FieldTag[]): FieldTag[] =>
+    fields.map((f) => ({ ...f, sortDirection: sortDirOf(f.name) }));
+
+  // P5+ adhoc 模式:只显示行 + 筛选两个区(column/value 隐藏);行列互换按钮也不渲染
+  const isAdhoc = viewMode.isAdhoc;
+
+  return (
+    <div
+      className={className ? `dropzones ${className}` : 'dropzones'}
+      style={style}
+      data-query-mode={viewConfig.queryMode ?? 'pivot'}
+    >
+      <ZoneView
+        zone="row"
+        fields={annotate(rowFields)}
+        draggingFieldType={draggingFieldType}
+        queryMode={isAdhoc ? 'adhoc' : 'pivot'}
+        onDrop={onDrop}
+        onRemove={onRemove}
+        onTagDragStart={onTagDragStart}
+        onTagContextMenu={onTagContextMenu}
+      />
+      {!isAdhoc && onSwapRowsColumns && (
+        <button
+          type="button"
+          className="dropzones__swap"
+          data-testid="dropzones-swap"
+          title="行列互换 — 把行字段和列字段对调"
+          onClick={onSwapRowsColumns}
+          aria-label="行列互换"
+        >
+          ⇅
+        </button>
+      )}
+      {!isAdhoc && (
+        <>
+          <ZoneView
+            zone="column"
+            fields={annotate(columnFields)}
+            draggingFieldType={draggingFieldType}
+            queryMode="pivot"
+            onDrop={onDrop}
+            onRemove={onRemove}
+            onTagDragStart={onTagDragStart}
+            onTagContextMenu={onTagContextMenu}
+          />
+          <ZoneView
+            zone="value"
+            fields={annotate(valueFields)}
+            draggingFieldType={draggingFieldType}
+            queryMode="pivot"
+            onDrop={onDrop}
+            onRemove={onRemove}
+            onTagDragStart={onTagDragStart}
+            onTagContextMenu={onTagContextMenu}
+          />
+        </>
+      )}
+      <ZoneView
+        zone="filter"
+        fields={annotate(filterFields)}
+        draggingFieldType={draggingFieldType}
+        queryMode={isAdhoc ? 'adhoc' : 'pivot'}
+        onDrop={onDrop}
+        onRemove={onRemove}
+        onTagDragStart={onTagDragStart}
+        onTagContextMenu={onTagContextMenu}
+      />
+    </div>
+  );
+}

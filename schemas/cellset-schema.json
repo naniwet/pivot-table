@@ -1,0 +1,733 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "smartbix.smartcube.model.query.ResultSet.CellSet",
+  "title": "CellSet",
+  "description": "CellSet (行轴、列轴可分别放置成员)查询结果，目前仅支持透视查询，不支持清单查询",
+  "type": "object",
+  "properties": {
+    "rowFields": {
+      "type": "array",
+      "description": "行字段元数据",
+      "items": {
+        "$ref": "#/definitions/CellField"
+      }
+    },
+    "columnFields": {
+      "type": "array",
+      "description": "列字段元数据",
+      "items": {
+        "$ref": "#/definitions/CellField"
+      }
+    },
+    "columnMetadataArray": {
+      "type": "array",
+      "description": "列元数据数组",
+      "items": {
+        "$ref": "#/definitions/ColumnMetaData"
+      },
+      "default": []
+    },
+    "columns": {
+      "type": "array",
+      "description": "按 column字段 拖拽顺序排序的列头成员",
+      "items": {
+        "type": "array",
+        "items": {
+          "$ref": "#/definitions/Member"
+        }
+      }
+    },
+    "rows": {
+      "type": "array",
+      "description": "按 row字段 拖拽顺序排序的行头成员",
+      "items": {
+        "type": "array",
+        "items": {
+          "$ref": "#/definitions/Member"
+        }
+      }
+    },
+    "data": {
+      "type": "array",
+      "description": "单元格数据（压缩矩阵）",
+      "items": {
+        "$ref": "#/definitions/Cell"
+      }
+    },
+    "fieldNameToUniqueId": {
+      "type": "object",
+      "description": "字段名到唯一ID的映射",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "totalRowCount": {
+      "type": "integer",
+      "description": "数据总行数"
+    }
+  },
+  "required": ["rowFields", "columnFields", "columns", "rows", "data", "fieldNameToUniqueId", "totalRowCount"],
+  "definitions": {
+    "CellField": {
+      "type": "object",
+      "description": "单元格字段定义",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "字段名称"
+        },
+        "define": {
+          "$ref": "#/definitions/FieldDefine"
+        },
+        "srcNamedSet": {
+          "oneOf": [
+            {
+              "$ref": "#/definitions/SrcNamedSet"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "fieldNames": {
+          "type": "array",
+          "description": "字段名列表",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": ["name", "define", "fieldNames"]
+    },
+    "FieldDefine": {
+      "type": "object",
+      "properties": {
+        "_enum": {
+          "type": "string",
+          "enum": ["MeasureField", "LevelField"]
+        }
+      },
+      "required": ["_enum"],
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "_enum": {
+              "const": "MeasureField"
+            },
+            "measureName": {
+              "type": "string",
+              "description": "度量名称"
+            }
+          },
+          "required": ["_enum", "measureName"]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "_enum": {
+              "const": "LevelField"
+            },
+            "dimensionName": {
+              "type": "string",
+              "description": "维度名称"
+            },
+            "levelName": {
+              "type": "string",
+              "description": "层次名称"
+            }
+          },
+          "required": ["_enum", "dimensionName", "levelName"]
+        }
+      ]
+    },
+    "SrcNamedSet": {
+      "type": "object",
+      "properties": {
+        "srcNamedSetName": {
+          "type": "string"
+        },
+        "fieldCaption": {
+          "type": "string"
+        }
+      },
+      "required": ["srcNamedSetName", "fieldCaption"]
+    },
+    "ColumnMetaData": {
+      "type": "object",
+      "description": "列元数据",
+      "properties": {
+        "fieldId": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "字段ID"
+        },
+        "name": {
+          "type": "string",
+          "description": "字段名"
+        },
+        "alias": {
+          "type": "string",
+          "description": "字段别名"
+        },
+        "valueType": {
+          "$ref": "#/definitions/ValueType",
+          "description": "字段值类型"
+        },
+        "levelType": {
+          "oneOf": [
+            {
+              "$ref": "#/definitions/LevelType"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "字段级别类型"
+        },
+        "dataFormat": {
+          "type": "string",
+          "description": "字段数据格式名"
+        },
+        "fieldDataFormat": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "字段自定义格式设置"
+        },
+        "transformRuleId": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "字段转化规则"
+        },
+        "maskingRuleIdList": {
+          "type": "array",
+          "description": "字段脱敏规则",
+          "items": {
+            "type": "string"
+          }
+        },
+        "accessible": {
+          "type": "boolean",
+          "description": "字段是否有权限访问",
+          "default": true
+        },
+        "queryField": {
+          "oneOf": [
+            {
+              "$ref": "#/definitions/QueryField"
+            },
+            {
+              "type": "null"
+            }
+        ]
+        },
+        "srcNamedSet": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "命名集信息"
+        },
+        "extensions": {
+          "type": ["object", "null"],
+          "default": null
+        }
+      },
+      "required": ["name", "alias", "valueType", "dataFormat", "maskingRuleIdList", "accessible"]
+    },
+    "QueryField": {
+      "type": "object",
+      "properties": {
+        "_enum": {
+          "type": "string",
+          "enum": ["DimensionField", "MeasureField"]
+        }
+      },
+      "required": ["_enum"],
+      "oneOf": [
+        {
+          "type": "object",
+          "description": "维度字段",
+          "properties": {
+            "_enum": {
+              "const": "DimensionField"
+            },
+            "name": {
+              "type": "string"
+            },
+            "dimension": {
+              "type": "string",
+              "description": "维度名称，可在backend-model或query-level中定义"
+            },
+            "level": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "aggregator": {
+              "oneOf": [
+                {
+                  "$ref": "#/definitions/DimensionAggregator"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "dataFormat": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "showCalcMembers": {
+              "type": "boolean",
+              "description": "是否显示计算成员，缺省为 true",
+              "default": true
+            },
+            "showEmptyMembers": {
+              "type": "boolean",
+              "description": "是否显示空成员，即显示全部维度成员，而忽略事实表",
+              "default": false
+            },
+            "subTotal": {
+              "$ref": "#/definitions/SubTotal",
+              "default": "HIDDEN"
+            },
+            "showAsToolTip": {
+              "type": "boolean",
+              "default": false
+            },
+            "hide": {
+              "type": "boolean",
+              "default": false
+            },
+            "extensions": {
+              "type": ["object", "null"],
+              "default": null
+            }
+          },
+          "required": ["_enum", "name", "dimension"]
+        },
+        {
+          "type": "object",
+          "description": "度量字段",
+          "properties": {
+            "_enum": {
+              "const": "MeasureField"
+            },
+            "name": {
+              "type": "string"
+            },
+            "measure": {
+              "type": "string",
+              "description": "度量名称"
+            },
+            "aggregator": {
+              "oneOf": [
+                {
+                  "$ref": "#/definitions/Aggregator"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "dataFormat": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "quickCalc": {
+              "oneOf": [
+                {
+                  "$ref": "#/definitions/QuickCalculation"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "hide": {
+              "type": "boolean",
+              "default": false
+            },
+            "extensions": {
+              "type": ["object", "null"],
+              "default": null
+            }
+          },
+          "required": ["_enum", "name", "measure"]
+        }
+      ]
+    },
+    "DimensionAggregator": {
+      "type": "object",
+      "properties": {
+        "_enum": {
+          "type": "string",
+          "enum": ["COUNT", "COUNT_DISTINCT", "MAX", "MIN", "ATTR", "FIRST_MEMBER", "LAST_MEMBER", "SUMMARY"]
+        }
+      },
+      "required": ["_enum"],
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "_enum": {
+              "const": "SUMMARY"
+            },
+            "zeroMessage": {
+              "type": "string",
+              "description": "无成员提示"
+            },
+            "limit": {
+              "type": "integer",
+              "description": "显示前几个"
+            },
+            "summary": {
+              "type": "string",
+              "description": "等%s个"
+            },
+            "summaryAlways": {
+              "type": "boolean",
+              "description": "是否显示总数，不超过limit就不显示",
+              "default": false
+            }
+          },
+          "required": ["_enum", "zeroMessage", "limit", "summary"]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "_enum": {
+              "type": "string",
+              "enum": ["COUNT", "COUNT_DISTINCT", "MAX", "MIN", "ATTR", "FIRST_MEMBER", "LAST_MEMBER"]
+            }
+          },
+          "required": ["_enum"]
+        }
+      ]
+    },
+    "SubTotal": {
+      "type": "string",
+      "enum": ["HIDDEN", "SHOW", "HIERARCHY_SHOW"],
+      "description": "HIDDEN: 不显示, SHOW: 单行合计, HIERARCHY_SHOW: 层级合计"
+    },
+    "Aggregator": {
+      "type": "string",
+      "enum": ["SUM", "AVG", "MIN", "MAX", "COUNT", "COUNT_DISTINCT", "ATTR", "MEDIAN", "STDDEV_POP", "STDDEV_SAMP", "VAR_POP", "VAR_SAMP", "LIST", "LIST_DISTINCT", "LAST", "FIRST"]
+    },
+    "QuickCalculation": {
+      "type": "object",
+      "properties": {
+        "_enum": {
+          "type": "string",
+          "enum": [
+            "GlobalPercent", "GroupPercent", "TotalPercent", "ColumnGroupPercent", "ColumnGlobalPercent",
+            "RowGroupPercent", "RowGlobalPercent", "TableDimensionPercent", "DataDimensionPercent",
+            "GlobalRankAscending", "GlobalRankDescending", "GroupRankAscending", "GroupRankDescending",
+            "ColumnGlobalRank", "ColumnGroupRank", "RowGlobalRank", "RowGroupRank", "TotalRank",
+            "TableDimensionRank", "DataDimensionRank",
+            "PrevPeriodValue", "PrevPeriodValueIncrease", "PrevPeriodRatio", "PrevPeriodRatioIncrease",
+            "SamePeriodValue", "SamePeriodValueIncrease", "SamePeriodRatio", "SamePeriodRatioIncrease",
+            "CumulativeValue", "SamePeriodCumulativeValue", "SamePeriodCumulativeValueIncrease",
+            "SamePeriodCumulativeRatio", "SamePeriodCumulativeRatioIncrease",
+            "PrevPeriodCumulativeValue", "PrevPeriodCumulativeValueIncrease", "PrevPeriodCumulativeRatio",
+            "PrevPeriodCumulativeRatioIncrease",
+            "PeriodStartValue", "PeriodStartCumulativeValue", "PeriodStartValueIncrease", "PeriodStartRatioIncrease",
+            "PeriodStartCumulativeValueIncrease", "PeriodStartCumulativeRatioIncrease",
+            "PeriodStartSamePeriodValue", "PeriodStartSamePeriodValueIncrease", "PeriodStartSamePeriodRatioIncrease",
+            "PeriodStartSamePeriodRatio", "PeriodStartPrevPeriodValue", "PeriodStartPrevPeriodValueIncrease",
+            "PeriodStartPrevPeriodRatioIncrease", "PeriodStartPrevPeriodRatio",
+            "PeriodEndValue", "LastPeriodEndValue", "PeriodEndCumulativeValue", "PeriodEndSamePeriodValue",
+            "PeriodEndSamePeriodValueIncrease", "PeriodEndSamePeriodRatioIncrease", "PeriodEndSamePeriodRatio",
+            "PeriodEndPrevPeriodValue", "PeriodEndPrevPeriodValueIncrease", "PeriodEndPrevPeriodRatioIncrease",
+            "PeriodEndPrevPeriodRatio",
+            "PeriodAverageValue",
+            "AggregateValue", "TimeLevelAggValue"
+          ]
+        }
+      },
+      "required": ["_enum"],
+      "oneOf": [
+        { "properties": { "_enum": { "const": "GlobalPercent" } }, "required": ["_enum"] },
+        { "properties": { "_enum": { "const": "GroupPercent" } }, "required": ["_enum"] },
+        { "properties": { "_enum": { "const": "TotalPercent" } }, "required": ["_enum"] },
+        { "properties": { "_enum": { "const": "ColumnGlobalPercent" } }, "required": ["_enum"] },
+        { "properties": { "_enum": { "const": "RowGlobalPercent" } }, "required": ["_enum"] },
+        { "properties": { "_enum": { "const": "GlobalRankAscending" } }, "required": ["_enum"] },
+        { "properties": { "_enum": { "const": "GlobalRankDescending" } }, "required": ["_enum"] },
+        { "properties": { "_enum": { "const": "GroupRankAscending" } }, "required": ["_enum"] },
+        { "properties": { "_enum": { "const": "GroupRankDescending" } }, "required": ["_enum"] },
+        { "properties": { "_enum": { "const": "ColumnGroupPercent" }, "basic": { "$ref": "#/definitions/SubTotalCalcBasis" } }, "required": ["_enum", "basic"] },
+        { "properties": { "_enum": { "const": "RowGroupPercent" }, "basic": { "$ref": "#/definitions/SubTotalCalcBasis" } }, "required": ["_enum", "basic"] },
+        { "properties": { "_enum": { "const": "TableDimensionPercent" }, "field": { "type": "string" } }, "required": ["_enum", "field"] },
+        { "properties": { "_enum": { "const": "DataDimensionPercent" }, "fields": { "type": "array", "items": { "type": "string" } }, "basic": { "$ref": "#/definitions/SubTotalCalcBasis" } }, "required": ["_enum", "fields", "basic"] },
+        { "properties": { "_enum": { "const": "ColumnGlobalRank" }, "sort": { "$ref": "#/definitions/RankSortDirection" } }, "required": ["_enum", "sort"] },
+        { "properties": { "_enum": { "const": "ColumnGroupRank" }, "sort": { "$ref": "#/definitions/RankSortDirection" } }, "required": ["_enum", "sort"] },
+        { "properties": { "_enum": { "const": "RowGlobalRank" }, "sort": { "$ref": "#/definitions/RankSortDirection" } }, "required": ["_enum", "sort"] },
+        { "properties": { "_enum": { "const": "RowGroupRank" }, "sort": { "$ref": "#/definitions/RankSortDirection" } }, "required": ["_enum", "sort"] },
+        { "properties": { "_enum": { "const": "TotalRank" }, "sort": { "$ref": "#/definitions/RankSortDirection" } }, "required": ["_enum", "sort"] },
+        { "properties": { "_enum": { "const": "TableDimensionRank" }, "field": { "type": "string" }, "sort": { "$ref": "#/definitions/RankSortDirection" } }, "required": ["_enum", "field", "sort"] },
+        { "properties": { "_enum": { "const": "DataDimensionRank" }, "fields": { "type": "array", "items": { "type": "string" } }, "sort": { "$ref": "#/definitions/SortDirection" } }, "required": ["_enum", "fields", "sort"] },
+        { "properties": { "_enum": { "const": "PrevPeriodValue" }, "dateDimension": { "type": "string" }, "dateLevel": { "type": "string" }, "offset": { "type": "integer" }, "extensions": { "type": ["object", "null"], "default": null } }, "required": ["_enum", "dateDimension", "dateLevel", "offset"] },
+        { "properties": { "_enum": { "const": "PrevPeriodValueIncrease" }, "dateDimension": { "type": "string" }, "dateLevel": { "type": "string" }, "offset": { "type": "integer" }, "extensions": { "type": ["object", "null"], "default": null } }, "required": ["_enum", "dateDimension", "dateLevel", "offset"] },
+        { "properties": { "_enum": { "const": "PrevPeriodRatio" }, "dateDimension": { "type": "string" }, "dateLevel": { "type": "string" }, "offset": { "type": "integer" }, "extensions": { "type": ["object", "null"], "default": null } }, "required": ["_enum", "dateDimension", "dateLevel", "offset"] },
+        { "properties": { "_enum": { "const": "PrevPeriodRatioIncrease" }, "dateDimension": { "type": "string" }, "dateLevel": { "type": "string" }, "offset": { "type": "integer" }, "extensions": { "type": ["object", "null"], "default": null } }, "required": ["_enum", "dateDimension", "dateLevel", "offset"] },
+        { "properties": { "_enum": { "const": "SamePeriodValue" }, "dateDimension": { "type": "string" }, "dateLevel": { "type": "string" }, "offset": { "type": "integer" }, "extensions": { "type": ["object", "null"], "default": null } }, "required": ["_enum", "dateDimension", "dateLevel", "offset"] },
+        { "properties": { "_enum": { "const": "SamePeriodValueIncrease" }, "dateDimension": { "type": "string" }, "dateLevel": { "type": "string" }, "offset": { "type": "integer" }, "extensions": { "type": ["object", "null"], "default": null } }, "required": ["_enum", "dateDimension", "dateLevel", "offset"] },
+        { "properties": { "_enum": { "const": "SamePeriodRatio" }, "dateDimension": { "type": "string" }, "dateLevel": { "type": "string" }, "offset": { "type": "integer" }, "extensions": { "type": ["object", "null"], "default": null } }, "required": ["_enum", "dateDimension", "dateLevel", "offset"] },
+        { "properties": { "_enum": { "const": "SamePeriodRatioIncrease" }, "dateDimension": { "type": "string" }, "dateLevel": { "type": "string" }, "offset": { "type": "integer" }, "extensions": { "type": ["object", "null"], "default": null } }, "required": ["_enum", "dateDimension", "dateLevel", "offset"] },
+        { "properties": { "_enum": { "const": "CumulativeValue" }, "dateDimension": { "type": "string" }, "dateLevel": { "type": "string" }, "offset": { "type": "integer" }, "extensions": { "type": ["object", "null"], "default": null } }, "required": ["_enum", "dateDimension", "dateLevel", "offset"] },
+        { "properties": { "_enum": { "const": "SamePeriodCumulativeValue" }, "dateDimension": { "type": "string" }, "samePeriodLevel": { "type": "string" }, "cumulativeLevel": { "type": "string" }, "offset": { "type": "integer" }, "extensions": { "type": ["object", "null"], "default": null } }, "required": ["_enum", "dateDimension", "samePeriodLevel", "cumulativeLevel", "offset"] },
+        { "properties": { "_enum": { "const": "SamePeriodCumulativeValueIncrease" }, "dateDimension": { "type": "string" }, "samePeriodLevel": { "type": "string" }, "cumulativeLevel": { "type": "string" }, "offset": { "type": "integer" }, "extensions": { "type": ["object", "null"], "default": null } }, "required": ["_enum", "dateDimension", "samePeriodLevel", "cumulativeLevel", "offset"] },
+        { "properties": { "_enum": { "const": "SamePeriodCumulativeRatio" }, "dateDimension": { "type": "string" }, "samePeriodLevel": { "type": "string" }, "cumulativeLevel": { "type": "string" }, "offset": { "type": "integer" }, "extensions": { "type": ["object", "null"], "default": null } }, "required": ["_enum", "dateDimension", "samePeriodLevel", "cumulativeLevel", "offset"] },
+        { "properties": { "_enum": { "const": "SamePeriodCumulativeRatioIncrease" }, "dateDimension": { "type": "string" }, "samePeriodLevel": { "type": "string" }, "cumulativeLevel": { "type": "string" }, "offset": { "type": "integer" }, "extensions": { "type": ["object", "null"], "default": null } }, "required": ["_enum", "dateDimension", "samePeriodLevel", "cumulativeLevel", "offset"] },
+        { "properties": { "_enum": { "const": "PrevPeriodCumulativeValue" }, "dateDimension": { "type": "string" }, "samePeriodLevel": { "type": "string" }, "cumulativeLevel": { "type": "string" }, "offset": { "type": "integer" }, "extensions": { "type": ["object", "null"], "default": null } }, "required": ["_enum", "dateDimension", "samePeriodLevel", "cumulativeLevel", "offset"] },
+        { "properties": { "_enum": { "const": "PrevPeriodCumulativeValueIncrease" }, "dateDimension": { "type": "string" }, "samePeriodLevel": { "type": "string" }, "cumulativeLevel": { "type": "string" }, "offset": { "type": "integer" }, "extensions": { "type": ["object", "null"], "default": null } }, "required": ["_enum", "dateDimension", "samePeriodLevel", "cumulativeLevel", "offset"] },
+        { "properties": { "_enum": { "const": "PrevPeriodCumulativeRatio" }, "dateDimension": { "type": "string" }, "samePeriodLevel": { "type": "string" }, "cumulativeLevel": { "type": "string" }, "offset": { "type": "integer" }, "extensions": { "type": ["object", "null"], "default": null } }, "required": ["_enum", "dateDimension", "samePeriodLevel", "cumulativeLevel", "offset"] },
+        { "properties": { "_enum": { "const": "PrevPeriodCumulativeRatioIncrease" }, "dateDimension": { "type": "string" }, "samePeriodLevel": { "type": "string" }, "cumulativeLevel": { "type": "string" }, "offset": { "type": "integer" }, "extensions": { "type": ["object", "null"], "default": null } }, "required": ["_enum", "dateDimension", "samePeriodLevel", "cumulativeLevel", "offset"] },
+        { "properties": { "_enum": { "const": "PeriodStartValue" }, "dateDimension": { "type": "string" }, "dateLevel": { "type": "string" }, "isSearchForward": { "type": "boolean" }, "defaultTimeLevel": { "type": "boolean", "default": true }, "extensions": { "type": ["object", "null"], "default": null } }, "required": ["_enum", "dateDimension", "dateLevel", "isSearchForward"] },
+        { "properties": { "_enum": { "const": "PeriodStartCumulativeValue" }, "dateDimension": { "type": "string" }, "dateLevel": { "type": "string" }, "extensions": { "type": ["object", "null"], "default": null } }, "required": ["_enum", "dateDimension", "dateLevel"] },
+        { "properties": { "_enum": { "const": "PeriodStartValueIncrease" }, "dateDimension": { "type": "string" }, "dateLevel": { "type": "string" }, "isSearchForward": { "type": "boolean" }, "defaultTimeLevel": { "type": "boolean", "default": true }, "extensions": { "type": ["object", "null"], "default": null } }, "required": ["_enum", "dateDimension", "dateLevel", "isSearchForward"] },
+        { "properties": { "_enum": { "const": "PeriodStartRatioIncrease" }, "dateDimension": { "type": "string" }, "dateLevel": { "type": "string" }, "isSearchForward": { "type": "boolean" }, "defaultTimeLevel": { "type": "boolean", "default": true }, "extensions": { "type": ["object", "null"], "default": null } }, "required": ["_enum", "dateDimension", "dateLevel", "isSearchForward"] },
+        { "properties": { "_enum": { "const": "PeriodStartCumulativeValueIncrease" }, "dateDimension": { "type": "string" }, "dateLevel": { "type": "string" }, "extensions": { "type": ["object", "null"], "default": null } }, "required": ["_enum", "dateDimension", "dateLevel"] },
+        { "properties": { "_enum": { "const": "PeriodStartCumulativeRatioIncrease" }, "dateDimension": { "type": "string" }, "dateLevel": { "type": "string" }, "extensions": { "type": ["object", "null"], "default": null } }, "required": ["_enum", "dateDimension", "dateLevel"] },
+        { "properties": { "_enum": { "const": "PeriodStartSamePeriodValue" }, "dateDimension": { "type": "string" }, "periodStartLevel": { "type": "string" }, "samePeriodLevel": { "type": "string" }, "isSearchForward": { "type": "boolean" }, "offset": { "type": "integer" }, "extensions": { "type": ["object", "null"], "default": null } }, "required": ["_enum", "dateDimension", "periodStartLevel", "samePeriodLevel", "isSearchForward", "offset"] },
+        { "properties": { "_enum": { "const": "PeriodStartSamePeriodValueIncrease" }, "dateDimension": { "type": "string" }, "periodStartLevel": { "type": "string" }, "samePeriodLevel": { "type": "string" }, "isSearchForward": { "type": "boolean" }, "offset": { "type": "integer" }, "extensions": { "type": ["object", "null"], "default": null } }, "required": ["_enum", "dateDimension", "periodStartLevel", "samePeriodLevel", "isSearchForward", "offset"] },
+        { "properties": { "_enum": { "const": "PeriodStartSamePeriodRatioIncrease" }, "dateDimension": { "type": "string" }, "periodStartLevel": { "type": "string" }, "samePeriodLevel": { "type": "string" }, "isSearchForward": { "type": "boolean" }, "offset": { "type": "integer" }, "extensions": { "type": ["object", "null"], "default": null } }, "required": ["_enum", "dateDimension", "periodStartLevel", "samePeriodLevel", "isSearchForward", "offset"] },
+        { "properties": { "_enum": { "const": "PeriodStartSamePeriodRatio" }, "dateDimension": { "type": "string" }, "periodStartLevel": { "type": "string" }, "samePeriodLevel": { "type": "string" }, "isSearchForward": { "type": "boolean" }, "offset": { "type": "integer" }, "extensions": { "type": ["object", "null"], "default": null } }, "required": ["_enum", "dateDimension", "periodStartLevel", "samePeriodLevel", "isSearchForward", "offset"] },
+        { "properties": { "_enum": { "const": "PeriodStartPrevPeriodValue" }, "dateDimension": { "type": "string" }, "periodStartLevel": { "type": "string" }, "prevPeriodLevel": { "type": "string" }, "isSearchForward": { "type": "boolean" }, "offset": { "type": "integer" }, "extensions": { "type": ["object", "null"], "default": null } }, "required": ["_enum", "dateDimension", "periodStartLevel", "prevPeriodLevel", "isSearchForward", "offset"] },
+        { "properties": { "_enum": { "const": "PeriodStartPrevPeriodValueIncrease" }, "dateDimension": { "type": "string" }, "periodStartLevel": { "type": "string" }, "prevPeriodLevel": { "type": "string" }, "isSearchForward": { "type": "boolean" }, "offset": { "type": "integer" }, "extensions": { "type": ["object", "null"], "default": null } }, "required": ["_enum", "dateDimension", "periodStartLevel", "prevPeriodLevel", "isSearchForward", "offset"] },
+        { "properties": { "_enum": { "const": "PeriodStartPrevPeriodRatioIncrease" }, "dateDimension": { "type": "string" }, "periodStartLevel": { "type": "string" }, "prevPeriodLevel": { "type": "string" }, "isSearchForward": { "type": "boolean" }, "offset": { "type": "integer" }, "extensions": { "type": ["object", "null"], "default": null } }, "required": ["_enum", "dateDimension", "periodStartLevel", "prevPeriodLevel", "isSearchForward", "offset"] },
+        { "properties": { "_enum": { "const": "PeriodStartPrevPeriodRatio" }, "dateDimension": { "type": "string" }, "periodStartLevel": { "type": "string" }, "prevPeriodLevel": { "type": "string" }, "isSearchForward": { "type": "boolean" }, "offset": { "type": "integer" }, "extensions": { "type": ["object", "null"], "default": null } }, "required": ["_enum", "dateDimension", "periodStartLevel", "prevPeriodLevel", "isSearchForward", "offset"] },
+        { "properties": { "_enum": { "const": "PeriodEndValue" }, "dateDimension": { "type": "string" }, "dateLevel": { "type": "string" }, "isSearchForward": { "type": "boolean" }, "extensions": { "type": ["object", "null"], "default": null } }, "required": ["_enum", "dateDimension", "dateLevel", "isSearchForward"] },
+        { "properties": { "_enum": { "const": "LastPeriodEndValue" }, "dateDimension": { "type": "string" }, "dateLevel": { "type": "string" }, "isSearchForward": { "type": "boolean" }, "offset": { "type": "integer" }, "extensions": { "type": ["object", "null"], "default": null } }, "required": ["_enum", "dateDimension", "dateLevel", "isSearchForward", "offset"] },
+        { "properties": { "_enum": { "const": "PeriodEndCumulativeValue" }, "dateDimension": { "type": "string" }, "dateLevel": { "type": "string" }, "extensions": { "type": ["object", "null"], "default": null } }, "required": ["_enum", "dateDimension", "dateLevel"] },
+        { "properties": { "_enum": { "const": "PeriodEndSamePeriodValue" }, "dateDimension": { "type": "string" }, "periodEndLevel": { "type": "string" }, "samePeriodLevel": { "type": "string" }, "isSearchForward": { "type": "boolean" }, "offset": { "type": "integer" }, "extensions": { "type": ["object", "null"], "default": null } }, "required": ["_enum", "dateDimension", "periodEndLevel", "samePeriodLevel", "isSearchForward", "offset"] },
+        { "properties": { "_enum": { "const": "PeriodEndSamePeriodValueIncrease" }, "dateDimension": { "type": "string" }, "periodEndLevel": { "type": "string" }, "samePeriodLevel": { "type": "string" }, "isSearchForward": { "type": "boolean" }, "offset": { "type": "integer" }, "extensions": { "type": ["object", "null"], "default": null } }, "required": ["_enum", "dateDimension", "periodEndLevel", "samePeriodLevel", "isSearchForward", "offset"] },
+        { "properties": { "_enum": { "const": "PeriodEndSamePeriodRatioIncrease" }, "dateDimension": { "type": "string" }, "periodEndLevel": { "type": "string" }, "samePeriodLevel": { "type": "string" }, "isSearchForward": { "type": "boolean" }, "offset": { "type": "integer" }, "extensions": { "type": ["object", "null"], "default": null } }, "required": ["_enum", "dateDimension", "periodEndLevel", "samePeriodLevel", "isSearchForward", "offset"] },
+        { "properties": { "_enum": { "const": "PeriodEndSamePeriodRatio" }, "dateDimension": { "type": "string" }, "periodEndLevel": { "type": "string" }, "samePeriodLevel": { "type": "string" }, "isSearchForward": { "type": "boolean" }, "offset": { "type": "integer" }, "extensions": { "type": ["object", "null"], "default": null } }, "required": ["_enum", "dateDimension", "periodEndLevel", "samePeriodLevel", "isSearchForward", "offset"] },
+        { "properties": { "_enum": { "const": "PeriodEndPrevPeriodValue" }, "dateDimension": { "type": "string" }, "periodEndLevel": { "type": "string" }, "prevPeriodLevel": { "type": "string" }, "isSearchForward": { "type": "boolean" }, "offset": { "type": "integer" }, "extensions": { "type": ["object", "null"], "default": null } }, "required": ["_enum", "dateDimension", "periodEndLevel", "prevPeriodLevel", "isSearchForward", "offset"] },
+        { "properties": { "_enum": { "const": "PeriodEndPrevPeriodValueIncrease" }, "dateDimension": { "type": "string" }, "periodEndLevel": { "type": "string" }, "prevPeriodLevel": { "type": "string" }, "isSearchForward": { "type": "boolean" }, "offset": { "type": "integer" }, "extensions": { "type": ["object", "null"], "default": null } }, "required": ["_enum", "dateDimension", "periodEndLevel", "prevPeriodLevel", "isSearchForward", "offset"] },
+        { "properties": { "_enum": { "const": "PeriodEndPrevPeriodRatioIncrease" }, "dateDimension": { "type": "string" }, "periodEndLevel": { "type": "string" }, "prevPeriodLevel": { "type": "string" }, "isSearchForward": { "type": "boolean" }, "offset": { "type": "integer" }, "extensions": { "type": ["object", "null"], "default": null } }, "required": ["_enum", "dateDimension", "periodEndLevel", "prevPeriodLevel", "isSearchForward", "offset"] },
+        { "properties": { "_enum": { "const": "PeriodEndPrevPeriodRatio" }, "dateDimension": { "type": "string" }, "periodEndLevel": { "type": "string" }, "prevPeriodLevel": { "type": "string" }, "isSearchForward": { "type": "boolean" }, "offset": { "type": "integer" }, "extensions": { "type": ["object", "null"], "default": null } }, "required": ["_enum", "dateDimension", "periodEndLevel", "prevPeriodLevel", "isSearchForward", "offset"] },
+        { "properties": { "_enum": { "const": "PeriodAverageValue" }, "dateDimension": { "type": "string" }, "dateLevel": { "type": "string" }, "extensions": { "type": ["object", "null"], "default": null } }, "required": ["_enum", "dateDimension", "dateLevel"] },
+        { "properties": { "_enum": { "const": "AggregateValue" }, "contextDimensions": { "type": "array", "items": { "type": "string" } }, "filter": { "oneOf": [{ "$ref": "#/definitions/Filter" }, { "type": "null" }] }, "extensions": { "type": ["object", "null"], "default": null } }, "required": ["_enum", "contextDimensions", "filter"] },
+        { "properties": { "_enum": { "const": "TimeLevelAggValue" }, "dateDimension": { "type": "string" }, "dateLevel": { "type": "string" }, "extensions": { "type": ["object", "null"], "default": null } }, "required": ["_enum", "dateDimension", "dateLevel"] }
+      ]
+    },
+    "SubTotalCalcBasis": {
+      "type": "string",
+      "enum": ["ParentLevel", "CurrentLevel"],
+      "description": "分组占比中小计合计基准"
+    },
+    "RankSortDirection": {
+      "type": "string",
+      "enum": ["ASC", "DESC"]
+    },
+    "SortDirection": {
+      "type": "string",
+      "enum": ["ASC", "DESC", "BASC", "BDESC"]
+    },
+    "ValueType": {
+      "type": "string",
+      "enum": ["STRING", "INTEGER", "LONG", "BIGINT", "FLOAT", "DOUBLE", "BIGDECIMAL", "DATE", "TIME", "DATETIME", "BOOLEAN", "ASCII_CODE", "NUMERIC", "TIMESTAMP"]
+    },
+    "LevelType": {
+      "type": "object",
+      "properties": {
+        "type": { "type": "string" }
+      },
+      "required": ["type"]
+    },
+    "Member": {
+      "type": "object",
+      "description": "维度成员",
+      "properties": {
+        "name": { "type": "string" },
+        "uniqueName": {
+          "type": "array",
+          "description": "from top to bottom, e.g. [\"Measures\", \"销售额\"]",
+          "items": { "type": "string" }
+        },
+        "level": { "type": "string" },
+        "dimension": { "type": "string" },
+        "fieldName": { "type": "string" },
+        "value": {},
+        "formattedValue": { "type": "string" },
+        "valueType": { "$ref": "#/definitions/ValueType" },
+        "useTransformRule": { "type": "boolean", "default": false }
+      },
+      "required": ["name", "uniqueName", "level", "dimension", "fieldName"]
+    },
+    "Cell": {
+      "type": "object",
+      "description": "压缩矩阵单元格",
+      "properties": {
+        "row": { "type": "integer" },
+        "column": { "type": "integer" },
+        "value": {},
+        "formattedValue": { "type": "string" },
+        "valueType": { "$ref": "#/definitions/ValueType" },
+        "useTransformRule": { "type": "boolean", "default": false }
+      },
+      "required": ["row", "column", "value", "formattedValue"]
+    },
+    "Filter": {
+      "type": "object",
+      "properties": {
+        "_enum": {
+          "type": "string",
+          "enum": ["ByValue", "ByLevel", "ByMeasure", "And", "Or", "Not", "NoneFilter"]
+        }
+      },
+      "required": ["_enum"],
+      "oneOf": [
+        {
+          "type": "object",
+          "description": "按维度值进行筛选",
+          "properties": {
+            "_enum": { "const": "ByValue" },
+            "operator": { "$ref": "#/definitions/BinaryOperator" },
+            "value": { "$ref": "#/definitions/FilterLiteral" }
+          },
+          "required": ["_enum", "operator", "value"]
+        },
+        {
+          "type": "object",
+          "description": "按层级筛选",
+          "properties": {
+            "_enum": { "const": "ByLevel" },
+            "level": { "type": "string" },
+            "operator": { "$ref": "#/definitions/BinaryOperator" },
+            "value": { "$ref": "#/definitions/FilterLiteral" }
+          },
+          "required": ["_enum", "level", "operator", "value"]
+        },
+        {
+          "type": "object",
+          "description": "按度量值进行筛选, 可以选择全局/组内上下文",
+          "properties": {
+            "_enum": { "const": "ByMeasure" },
+            "measure": { "type": "string" },
+            "measureContext": { "$ref": "#/definitions/MeasureContext" },
+            "operator": { "$ref": "#/definitions/BinaryOperator" },
+            "value": { "$ref": "#/definitions/FilterLiteral" }
+          },
+          "required": ["_enum", "measure", "measureContext", "operator", "value"]
+        },
+        {
+          "type": "object",
+          "description": "逻辑与",
+          "properties": {
+            "_enum": { "const": "And" },
+            "left": { "$ref": "#/definitions/Filter" },
+            "right": { "$ref": "#/definitions/Filter" }
+          },
+          "required": ["_enum", "left", "right"]
+        },
+        {
+          "type": "object",
+          "description": "逻辑或",
+          "properties": {
+            "_enum": { "const": "Or" },
+            "left": { "$ref": "#/definitions/Filter" },
+            "right": { "$ref": "#/definitions/Filter" }
+          },
+          "required": ["_enum", "left", "right"]
+        },
+        {
+          "type": "object",
+          "description": "逻辑非",
+          "properties": {
+            "_enum": { "const": "Not" },
+            "expr": { "$ref": "#/definitions/Filter" }
+          },
+          "required": ["_enum", "expr"]
+        },
+        {
+          "type": "object",
+          "description": "将无关维度filter替换为1=1或0=1",
+          "properties": {
+            "_enum": { "const": "NoneFilter" },
+            "value": { "$ref": "#/definitions/FilterLiteral" },
+            "operator": { "$ref": "#/definitions/BinaryOperator", "default": "Equals" },
+            "value2": { "$ref": "#/definitions/FilterLiteral", "default": 1 }
+          },
+          "required": ["_enum", "value"]
+        }
+      ]
+    },
+    "FilterLiteral": {
+      "oneOf": [
+        { "type": "boolean" },
+        { "type": "integer" },
+        { "type": "number" },
+        { "type": "string" },
+        { "type": "array", "items": { "type": "integer" } },
+        { "type": "array", "items": { "type": "number" } },
+        { "type": "array", "items": { "type": "boolean" } },
+        { "type": "array", "items": { "type": "string" } },
+        { "type": "array", "items": { "type": "string" }, "description": "List[String]" },
+        { "type": "null", "description": "NullLiteral" }
+      ]
+    },
+    "BinaryOperator": {
+      "type": "string",
+      "enum": [
+        "Equals", "NotEquals", "In", "NotIn", "Like", "StartsWith", "EndsWith",
+        "Contains", "GreaterThan", "GreaterThanOrEqual", "LessThan", "LessThanOrEqual",
+        "NotLike", "NotLikeStart", "NotLikeEnd"
+      ]
+    },
+    "MeasureContext": {
+      "type": "string",
+      "enum": ["InGlobal", "InGroup"],
+      "description": "InGlobal: 全局上下文, InGroup: 组内上下文"
+    }
+  }
+}

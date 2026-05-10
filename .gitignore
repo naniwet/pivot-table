@@ -1,0 +1,19 @@
+node_modules
+dist
+coverage
+.vite
+*.log
+.DS_Store
+
+# 真实后端 probe 输出可能包含敏感数据（数据集名、字段标签等），不入库
+scripts/probe-output/
+
+# Demo 用到的本地环境（含 token，不入库）
+.env.local
+.env.*.local
+
+# Demo build 产物
+demo-dist/
+
+# 本地 Smartbi 代理配置(含 token,不入库)
+proxy/configs.json

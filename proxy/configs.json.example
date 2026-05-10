@@ -1,0 +1,9 @@
+[
+  {
+    "id": "example-test",
+    "name": "测试环境(示例)",
+    "baseUrl": "http://10.10.202.100:28082/smartbi",
+    "token": "st_xxx_paste_your_token_here",
+    "modelId": "I8a8aa3ed018ff259f259763901900f943a901c9a"
+  }
+]
