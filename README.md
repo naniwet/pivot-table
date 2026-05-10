@@ -1,167 +1,241 @@
-# @company/pivot-table
+# pivot-table
 
-Web 数据透视表组件（P0 开发中）。配套 PRD：[`../prd/`](../prd/)。
+可嵌入 Web 数据透视表组件 — TypeScript + React。基于 Smartbi 后端 query 协议设计,但**核心组件后端无关**:只要能实现 `Metadata + onQuery → CellSet` 协议,任何数据源都能接(Excel / 本地 JSON / 自家 BFF 等)。
 
-## 当前进度
+> 本仓库私有。1071+ 单测覆盖。生产可用。
 
-**P0 Week 3 完工 — 全部代码就绪，待联调**（按 [prd/engineering/p0-dev.md](../prd/engineering/p0-dev.md) 的开发计划）
+---
 
-已交付（严格 TDD 顺序：测试先行）：
+## 快速开始
+
+```bash
+npm install
+cp proxy/configs.json.example proxy/configs.json    # 配 Smartbi URL + token + modelId
+npm run dev                                          # 同时启 vite (5173) + Express proxy (3100)
+```
+
+浏览器开 http://localhost:5173,顶部"Smartbi 配置"切换器选环境,字段树拖字段到行/列/数值/筛选区开始用。
+
+`proxy/configs.json` 在 `.gitignore` 里,**真 token 不入库**。`.example` 模板可参考。
+
+---
+
+## 核心能力
+
+### 数据交互
+- 字段拖拽 → 行/列/数值/筛选 4 区(双击 / checkbox / 右键菜单 多种添加方式)
+- **透视模式**(Pivot,聚合查询)+ **即席查询模式**(Adhoc,SQL 直连明细)— segmented control 一键切换
+- Hierarchy 钻取(行轴 ▶/▼ drill;列轴 collapsed parent)
+- 5 种自建字段:`calc_measure` / `calc_column` / `enum_group` / `range_group` / `dim_as_measure`
+- 过滤树(AND/OR 嵌套);维度过滤 / 度量过滤(HAVING)分段
+- 多维排序(ByDimension / ByMeasure;ASC/DESC + 分组内 BASC/BDESC;Shift+点击多列)
+
+### 展示与导出
+- **三种显示模式**:表格 / 图表(echarts:bar/line/pie)/ 树状(lazy-load)
+- 条件格式化(threshold + dataBar);per-measure scope
+- 列宽拖拽;冻结列头 / 行头 sticky
+- 行表头 merge / tree 模式;列头同样
+- 翻页:页码翻页器 / **滚动加载**(行累积,触底自动 fetch 下一页)
+- 导出:CSV(当前页)/ Excel(全量,可配 maxRows;数值类型保留可 SUM)
+
+### UI 形态
+- **浏览模式**:沉浸视图,隐藏所有 chrome,只看数据 — 右上角浮动退出按钮 / Esc
+- 三面板独立可收起(工具栏 / 字段面板 / 字段树),localStorage 持久化
+- 列头右键菜单:升序/降序/取消 / 复制
+- 行/列头成员右键菜单:筛选=X(In)/ 排除此项(NotIn)/ 复制
+- chip 右键菜单(zone 内字段):排序 / 移动 / 快速计算 / 显示小计/总计 / 条件格式化 / 删除
+
+### Demo 集成(可选,仓库自带)
+- Express proxy(`proxy/server.js`)解决浏览器 CORS:`/proxy/<configId>/*` 反代到 Smartbi,Token 自动注入
+- `SmartbiConfigManager` UI(GitHub-style picker)管理多套数据源(URL / token / modelId)
+- 配置存 `proxy/configs.json`,UI 表单增删改
+
+---
+
+## 架构
+
+### 解耦边界
+
+```
+┌─ 你的宿主应用 ──────────────────────────────┐
+│                                              │
+│  fetchMetadata(modelId) → Metadata          │  ← 你实现
+│  onQuery(query) → CellSet                   │  ← 你实现
+│             │                                │
+│             ▼                                │
+│  <PivotTable metadata onQuery /> ←── 本组件 │
+│                                              │
+└──────────────────────────────────────────────┘
+```
+
+`PivotTable` 只依赖 `Metadata` + `onQuery` 协议,**不知道**有 Smartbi 这回事。
+`SmartbiClient` 只是其中一种实现,放在 `src/api/smartbi/`,demo 里组装。
+
+要换数据源(如 Excel),写一个新 client 实现同样协议即可 — 见 [架构 — 加新数据源](#架构-加新数据源)。
+
+### 目录结构
 
 ```
 src/
-├── types/                              ✅ 完整类型契约
-├── fixtures/                           ✅ 测试数据 builder + 真实 metadata 简化版
-├── core/
-│   ├── dropRules/                     ─── 拖拽合法性 policy（pure，components 与 viewConfig 共用）
-│   │   ├── dropRules                  ✅ 24 cases  P0 矩阵 + canDrop
-│   │   └── dragProtocol               ✅ HTML5 dataTransfer MIME + 编解码（间接覆盖）
-│   ├── metadata/fieldIndex            ✅  7 cases  Metadata O(1) 索引
-│   ├── queryBuilder/                  ✅ 39 cases  主入口 + 6 translators + validators + stubs
-│   ├── cellSetParser/
-│   │   ├── matrixBuilder              ✅  7 cases  ADR-003 稀疏→稠密
-│   │   └── parseCellSet               ✅ 13 cases  CellSet→RenderModel
-│   └── viewConfig/                    ─── 五个 ViewConfig→ViewConfig 纯变更
-│       ├── cycleRowSort               ✅  6 cases  排序三态：DESC→ASC→none
-│       ├── setRowPage                 ✅  4 cases  翻页 + clamp >=1
-│       ├── toggleHierarchyExpansion   ✅ 12 cases  drill 切换 + 自动维护祖先/后代不变量
-│       ├── applyDrop                  ✅ 13 cases  字段拖入 + 自动 move 语义
-│       └── removeFieldFromZone        ✅  6 cases  × 按钮移除
-├── components/
-│   ├── FieldTree/FieldTree            ✅ 10 cases  字段树渲染 + 搜索 + dragstart 写 dataTransfer
-│   ├── DropZones/DropZones            ✅ 11 cases  4 区域 + canDrop highlight + drop/remove
-│   ├── PivotRenderer/PivotRenderer    ✅ 19 cases  空/加载/错误三态 + 列头排序 + 行头 drill + 总计 + 脱敏 + tooltip
-│   ├── Pagination/Pagination          ✅  8 cases  行轴翻页 + 边界禁用
-│   ├── Toolbar/Toolbar                ✅  5 cases  刷新 + CSV 导出按钮
-│   └── PivotTable/PivotTable          ✅  5 cases  顶层粘合 + 场景 B 4-step 集成测试
-└── hooks/
-    ├── useViewConfig                  ✅ 14 cases  受控/非受控 + 6 actions reducer
-    └── usePivotQuery                  ✅ 12 cases  L0 缓存 + ADR-011 取消 + 3-失败熔断 + refetch
+├── types/                  类型契约(Query / CellSet / Metadata / ViewConfig)
+├── core/                   纯逻辑,无 React/DOM 依赖
+│   ├── queryBuilder/       ViewConfig + Metadata → Query(含 6 个翻译器)
+│   ├── cellSetParser/      CellSet → RenderModel(矩阵 + 行/列头树 + 总计)
+│   ├── viewConfig/         ViewConfig 纯变更(reducer 用)
+│   ├── viewMode/           派生 mode flag(单源,避免散乱 isAdhoc 检查)
+│   ├── dropRules/          拖拽合法性策略(透视/即席分别)
+│   ├── filterTree/         Filter 树纯函数(AND/OR 嵌套编辑)
+│   ├── conditionalFormat/  threshold + dataBar 计算
+│   ├── chart/              ECharts series 构造
+│   ├── tree/               树状模式 lazy-load
+│   ├── export/             csvExport + xlsxExport(纯转换,不下载)
+│   ├── drillThrough/       钻取明细 query 构造
+│   └── ...
+├── hooks/                  React hooks
+│   ├── useViewConfig       ViewConfig reducer(受控/非受控双模式)
+│   ├── usePivotQuery       paged 模式查询(L0 cache + 熔断 + AbortSignal)
+│   ├── useScrollPivotQuery 滚动模式查询(累积 cellSet + loadMore + 重置)
+│   ├── useTagMenu          chip 右键菜单 items
+│   ├── useCellMenu         数据单元格右键菜单 items
+│   ├── useColumnHeaderMenu 列头/corner/度量列头 右键菜单 items(排序+复制)
+│   ├── useMemberContextMenu 行/列头成员右键菜单 items(In/NotIn 过滤)
+│   └── ...
+├── components/             React 组件
+│   ├── PivotTable/         顶层粘合
+│   ├── PivotRenderer/      透视表渲染(merge/tree 模式 + 列树)
+│   ├── DetailRenderer/     即席模式平铺渲染
+│   ├── ChartRenderer/      echarts 渲染
+│   ├── TreeRenderer/       树状模式渲染
+│   ├── FieldTree/          字段树(右侧 panel)
+│   ├── DropZones/          4 区拖拽承载
+│   ├── FilterPanel/        过滤条件区(AND/OR 树编辑器)
+│   ├── Toolbar/            工具栏(刷新/模式切换/导出/设置/浏览)
+│   ├── SettingsModal/      设置弹窗
+│   ├── ContextMenu/        通用右键菜单(嵌套支持 + 边缘自动翻转)
+│   └── ...
+├── api/smartbi/            SmartbiClient — 一种 onQuery 实现
+└── fixtures/               测试 metadata + cellset builder
 
-src/core/export/csvExport             ✅  8 cases  RFC 4180 风格 + 总计行 + 脱敏/EMPTY_CELL
-
-src/api/smartbi/SmartbiClient         ✅ 12 cases  Smartbi 后端适配器
-                                                    GET resourcetreedata + POST queryFromSmartCubeByName
-                                                    auth (token/cookie) + AbortSignal + 错误包装
+demo/                       Demo 入口 + Smartbi 配置管理 UI
+proxy/                      Express dev proxy(CORS bypass + token 注入)
+scripts/probe-*.ts          后端协议契约 probe(锁住 schema 漂移)
+schemas/                    后端 query / cellset JSON schema(source of truth)
 ```
 
-**测试总数**：251 cases（全部按 TDD 节奏：先写 .test.ts 再写实现）
-**core/ 覆盖率**：99%+（远超 p0-dev 80% 门槛）
-**测试基础设施**：vitest 1.6 + @testing-library/react 14（jsdom 仅 components/hooks，core 跑 node）
+---
 
-## 使用
+## 开发
 
 ```bash
-npm install        # 安装依赖
-npm run typecheck  # TypeScript 严格模式
-npm test           # vitest 跑全部测试
-npm run test:coverage  # 看 core/ 覆盖率（目标 ≥ 80%）
+npm run dev          # vite + proxy 并行(localhost:5173)
+npm test             # vitest 跑全部 1071+ 测试
+npm run typecheck    # tsc --noEmit
+npm run test:watch
+npm run test:coverage
+npm run build:demo   # 构建 demo 静态产物
 ```
 
-## 下一步（P0 Week 3-4）
+### 测试基础设施
 
-按 [p0-dev.md](../prd/engineering/p0-dev.md) 第 2 节模块开发顺序：
+- vitest 1.6 + @testing-library/react 14
+- core/ 跑 node 环境;components/hooks 跑 jsdom
+- core/ 覆盖率门槛 80%(实测 99%+)
+- TDD 节奏:**先写 .test.ts 再写实现**
 
-- [x] CellSetParser + matrixBuilder
-- [x] FieldTree 组件
-- [x] dropRules.ts 数据驱动表 + dragProtocol（HTML5 dataTransfer）
-- [x] ViewConfig 纯变更（cycleRowSort / setRowPage / toggleHierarchyExpansion / applyDrop / removeFieldFromZone）
-- [x] useViewConfig hook（受控/非受控、6 个 actions）
-- [x] DropZones 组件（4 zone + highlight/grey + drop + remove）
-- [x] usePivotQuery hook（ADR-011 取消机制 + L0 缓存 + 3-失败熔断 + refetch）
-      _注：L1 翻页缓存延后；按需在场景 B 翻页性能不达标时再加_
-- [x] PivotRenderer（空/加载/错误三态 + 列头 + drill + 总计 + 脱敏 + tooltip）
-- [x] Pagination（仅行轴 + 边界禁用）
-- [x] Toolbar（刷新 + CSV 导出按钮）
-- [x] csvExport（pure，RFC 4180）
-- [x] **PivotTable 顶层组件 + 场景 B 集成测试（4-step drill+sort 通过）**
-- [x] **SmartbiClient 适配器 + probe 真实后端连通**
-      _GET resourcetreedata 和 POST queryFromSmartCubeByName 都跑通；返回 metadata + cellset 形态确认与 types 99% 对齐_
-- [ ] E2E（Playwright，场景 B 跨浏览器跑通）— 需真实数据集
-- [ ] ADR-004 hierarchy 展开机制实地验证（连续 drill 江苏 → 苏南 → 南京 走真后端）
-- [ ] 嵌入到 1 个真实业务系统的 demo
+### Probe 脚本(后端协议契约)
 
-## 联调与 Schema 对齐（2026-05-05）
-
-后端 [schemas/query-schema.json](schemas/query-schema.json) 和 [schemas/cellset-schema.json](schemas/cellset-schema.json) 是 source of truth。
-
-**Schema 对齐修正（vs 我手写的 types）**：
-
-| 修正 | 位置 |
-|---|---|
-| `Aggregator` 重复导出 → 拆为 `metadata.MetadataAggregator` 与 `query.Aggregator`（两个 enum 值不一致是后端历史包袱） | [types/metadata.ts](src/types/metadata.ts) |
-| `DataType` → `ValueType`（schema 名）；`'ASCII'` → `'ASCII_CODE'`；保留 `DataType` 别名兼容 | [types/metadata.ts](src/types/metadata.ts) |
-| `Filter` union 缺 `NoneFilter` → 已补 | [types/query.ts](src/types/query.ts) |
-| `buildSort` 对 `ByDimension` 分支构造错（pre-existing） → 改判别式 | [fixtures/builders.ts](src/fixtures/builders.ts) |
-
-**真实后端 probe 修正**（运行 `scripts/probe-backend.ts` 对比 schema 和 reality 后发现）：
-
-| 修正 | 真实响应 vs schema |
-|---|---|
-| `Metadata.namedsets: FieldNode \| null`（之前 FieldNode）| 数据集无命名集时实际返回 `null` |
-| `ColumnMetaData.levelType: string \| { type: string } \| null` | schema 说 `{type: string}`，真实是裸字符串 `"TIME_YEAR"`；用 union 兼容两种 |
-
-`npm run typecheck` 现已 0 错误，`npm test` 235/235 全绿。
-
-## 本地 Demo（可视化联调）
+`scripts/probe-*.ts` 用真后端 token 验证 query/cellset 形态没漂移:
 
 ```bash
-cp .env.local.example .env.local
-# 编辑 .env.local 填入 VITE_SMARTBI_TOKEN
-
-npm run dev
-# 浏览器开 http://localhost:5173
+SMARTBI_TOKEN=st_xxx npx tsx scripts/probe-baseline.ts          # 基础 PivotQuery
+SMARTBI_TOKEN=st_xxx npx tsx scripts/probe-final.ts             # customElements(enum/range)
+SMARTBI_TOKEN=st_xxx npx tsx scripts/probe-calc-final.ts        # calc_measure
+SMARTBI_TOKEN=st_xxx npx tsx scripts/probe-adhoc-end-to-end.ts  # adhoc + measure-as-filter
+# ... 等
 ```
 
-Vite dev 用 proxy 转发 `/smartbi/**` 到真实后端（默认 10.10.202.100:28082），规避 CORS。
-Demo 启动后从字段树拖 LEVEL 字段到行轴 + measure 到值，可看到真实数据渲染。
-**drill ▶▼ 在 demo 中暂未启用 — 见 [ADR-004-finding.md](ADR-004-finding.md) 待 C2 重写**。
+CI workflow(`.github/workflows/ci.yml`)在手动 dispatch 时跑 probe smoke。
 
-## 已知限制（P0 → P1 follow-up）
+---
 
-| 限制 | 影响 | 来源 |
-|---|---|---|
-| ~~drill ▶▼ 不工作~~ ✅ **已修**（ADR-004 C2 已落地） | drill = 全局轴深度 +1，rows 数组加新 level 字段重发 query | [ADR-004-finding.md](ADR-004-finding.md) |
-| **CSV 导出仅当前页**（≤ 50 行） | 大数据量场景不支持全量 CSV | 已确认不做后端导出（用户决定）；如未来需要，后端要加专门 export endpoint |
-| L1 翻页缓存未实现 | 翻页性能可能不达 PRD 预期 | 按需在压测后决定要不要补 |
-
-## 嵌入 Smartbi 业务系统的最简用法
+## 嵌入用法(基本接入)
 
 ```tsx
-import { PivotTable, SmartbiClient, buildViewConfig, buildHierarchyRow, buildValueField } from '@company/pivot-table';
+import { PivotTable, SmartbiClient, buildViewConfig, buildValueField } from '@company/pivot-table';
 
 const client = new SmartbiClient({
-  baseUrl: 'http://10.10.202.100:28082/smartbi/smartbix',  // 注意带 /smartbix
-  auth: { token: 'st_eyJ...' },     // 或 useCookies: true 走浏览器 session
+  baseUrl: 'http://your-smartbi/smartbix',
+  auth: { token: 'st_xxx' },          // 或 useCookies: true
 });
 
-// 1. 加载 metadata
-const metadata = await client.fetchMetadata('I8a8aa3ed018ff259f259763901900f943a901c9a');
+const metadata = await client.fetchMetadata('your-model-id');
 
-// 2. 渲染
 <PivotTable
   metadata={metadata}
   defaultValue={buildViewConfig({
-    rows: [buildHierarchyRow({ fieldName: 'the_date_Year2' })],
+    rows: [{ fieldName: 'the_date_Year2', type: 'Dimension' }],
     values: [buildValueField({ measureName: '销售额_m' })],
   })}
-  onQuery={client.asOnQuery()}     // ← 一行接通后端查询，含 AbortSignal 取消
+  onQuery={client.asOnQuery()}        // 含 AbortSignal 取消
+  onChange={(viewConfig) => {/* 持久化 viewConfig */}}
 />
 ```
 
-`SmartbiClient` 是后端适配器，理论上可单独成 package；当前与 pivot-table 同 repo 方便联调。
-PivotTable 组件本身完全后端无关，只通过 `onQuery` callback 协作。
+可控 vs 不可控:
+- **不可控**(简单嵌入):传 `defaultValue`,组件自管 viewConfig
+- **可控**(viewConfig 跟应用 state 同步):传 `value` + `onChange`
 
-## ADR 联调阻塞项
+---
 
-- [ ] **ADR-004** P0 W1.D2 - W2.D5：和后端联调 hierarchy 展开机制（[详见 ADR-004](../prd/engineering/p0-dev.md#adr-004-hierarchy-展开通过-filter-实现待后端联调验证)）
-- [ ] **PRD 阻塞项 1-6**：metadata API、PageSettings 默认值、嵌入业务系统、错误码、hierarchy 用户预期、埋点平台
+## 架构 — 加新数据源
+
+`PivotTable` 只要满足 `Metadata + onQuery` 协议,数据源就能换。新数据源(如 Excel)的伪代码:
+
+```ts
+// 1. 解析数据源 → Metadata
+const metadata: Metadata = parseXlsxToMetadata(xlsxFile);
+
+// 2. 实现 onQuery
+const onQuery = async (query: Query): Promise<CellSet> => {
+  const filtered = applyDimensionFilter(rows, query.dimensionFilter);
+  const aggregated = groupByAndAggregate(filtered, query.rows, query.columns);
+  return buildCellSet(aggregated, query.pageSettings);
+};
+
+// 3. 像 SmartbiClient 一样接进来
+<PivotTable metadata={metadata} onQuery={onQuery} ... />
+```
+
+具体可行性 / 工作量见私有讨论。Excel 路径需要自己写 in-memory OLAP(group-by + aggregate),工作量 ~半周(adhoc 模式)~ 一周(完整透视聚合)。
+
+---
+
+## ADR / 关键设计决定
+
+- [ADR-004](ADR-004-finding.md) — Hierarchy drill 用 OLAP 轴深度而非 filter
+- `viewMode.ts` — 派生 mode flag,避免散乱 isAdhoc / displayMode 检查
+- `useScrollPivotQuery` — 行累积 + 触底加载;独立于 paged 模式 hook
+- 表头右键菜单 / chip 右键菜单 / 单元格右键菜单 各走独立 hook
+- `proxy/server.js` 的 body parser 限定到 `/api`,避免吃掉 `/proxy` POST body 的经典 http-proxy-middleware 坑
+
+## 已知限制 / 未做
+
+| 项 | 状态 |
+|---|---|
+| Excel 数据源接入 | 架构支持,具体实现未做 |
+| 大数据量(>50k 行)全量 Excel 导出 | 当前走"加大 pageSize 一次拉全",上限 100k;真"无上限"需后端 stream endpoint |
+| 真 Top-N 过滤 | 删除(2026-05-06);走分页 + 排序替代 |
+| Hierarchy 行的精确 level 过滤 | 用 hierarchyFieldName 兜底;细化待后端能力 |
+| Tree mode 行头右键菜单 | 暂跳过(merge mode 已接);后续可补 |
+| L1 翻页缓存 | 未实现;按需做 |
+| E2E 测试 | 未加(单测充分;需 Playwright + 真 endpoint) |
+
+---
 
 ## 开发约定
 
-参见 [prd/engineering/README.md](../prd/engineering/README.md)：
-
-- 严格 TDD：先写测试，再写最简实现，最后重构
-- core/ 内禁止依赖 React/DOM/IO/全局状态/时间
-- 通用语言：术语、字段命名按 [prd/2-architecture.md 第 1 节](../prd/2-architecture.md) 锁定
-- 5 分钟法则：每个新接口能在 5 分钟内写出单测，依赖能 mock
+- **严格 TDD**:先写测试 → 写最简实现 → 重构
+- **core/ 内禁止**依赖 React / DOM / IO / 全局状态 / 时间
+- **5 分钟法则**:每个新接口能在 5 分钟内写出单测,依赖能 mock
+- **probe 优先**:跟后端协议有疑问的 → 写 probe 脚本实测,**不靠猜**
+- **trade-off 显式**:每个关键决策注释附"收益 / 代价 / 何时翻案"
