@@ -5,12 +5,10 @@
  *   - 验证 SmartbiClient 请求拼装在真实环境里能通
  *   - 看 metadata / CellSet 真实 JSON 形态，对比 [src/types/](../src/types/) 找 drift
  *
- * 用法：
- *   SMARTBI_TOKEN=st_xxx npx tsx scripts/probe-backend.ts
- *   # 或者：
- *   SMARTBI_BASE=http://10.10.202.100:28082/smartbi \
+ * 用法:
+ *   SMARTBI_BASE=http://your-host:port/path \
  *   SMARTBI_TOKEN=st_xxx \
- *   SMARTBI_MODEL_ID=I8a8aa3ed018ff259f259763901900f943a901c9a \
+ *   SMARTBI_MODEL_ID=your_model_id \
  *   npx tsx scripts/probe-backend.ts
  *
  * 该脚本只读 — 一次 GET resource tree、一次 POST 简易 query。
@@ -33,8 +31,8 @@ import type { Query } from '../src/types/query.js';
 import type { ViewConfig } from '../src/types/viewConfig.js';
 
 const TOKEN = process.env.SMARTBI_TOKEN;
-const BASE = process.env.SMARTBI_BASE ?? 'http://10.10.202.100:28082/smartbi';
-const MODEL_ID = process.env.SMARTBI_MODEL_ID ?? 'I8a8aa3ed018ff259f259763901900f943a901c9a';
+const BASE = process.env.SMARTBI_BASE!;
+const MODEL_ID = process.env.SMARTBI_MODEL_ID!;
 
 if (!TOKEN) {
   console.error('SMARTBI_TOKEN env var not set; pass like: SMARTBI_TOKEN=st_xxx npx tsx scripts/probe-backend.ts');

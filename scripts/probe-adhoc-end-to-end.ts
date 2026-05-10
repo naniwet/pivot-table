@@ -7,8 +7,8 @@ import { buildAdhocQuery } from '../src/core/queryBuilder/buildAdhocQuery.js';
 import { buildLeafFilter, buildViewConfig } from '../src/fixtures/builders.js';
 
 const TOKEN = process.env.SMARTBI_TOKEN!;
-const BASE = process.env.SMARTBI_BASE ?? 'http://10.10.202.100:28082/smartbi/smartbix';
-const MODEL_ID = process.env.SMARTBI_MODEL_ID ?? 'I8a8aa3ed018ff259f259763901900f943a901c9a';
+const BASE = process.env.SMARTBI_BASE!;
+const MODEL_ID = process.env.SMARTBI_MODEL_ID!;
 
 (globalThis as { __SMARTBI_ERR_LIMIT__?: number }).__SMARTBI_ERR_LIMIT__ = 5000;
 const client = new SmartbiClient({ baseUrl: BASE, auth: { token: TOKEN } });

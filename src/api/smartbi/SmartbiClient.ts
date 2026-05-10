@@ -35,7 +35,7 @@ export interface SmartbiAuth {
 }
 
 export interface SmartbiClientOptions {
-  /** 后端根，如 `http://10.10.202.100:28082/smartbi` */
+  /** 后端根,如 `http://your-host:port/smartbi` */
   baseUrl: string;
   auth?: SmartbiAuth;
   /** 自定义 fetch（测试 / SSR 注入），默认 globalThis.fetch */

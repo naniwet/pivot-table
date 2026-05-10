@@ -127,7 +127,7 @@ dimRoot.children = [yearLevel];
 measureRoot.children = [salesMeasureNode];
 
 const realMetadata: Metadata = {
-  id: 'I8a8aa3ed018ff259f259763901900f943a901c9a',
+  id: 'placeholder-model-id',
   name: '订单',
   alias: '订单',
   desc: '',

@@ -135,7 +135,8 @@ app.delete('/api/configs/:id', (req, res) => {
 // 转发到:    <config.baseUrl>/<rest>
 // 例:
 //   /proxy/abc/api/augmentedDataSet/xxx
-//   → http://10.10.202.100:28082/smartbi/smartbix/api/augmentedDataSet/xxx
+//   → <config.baseUrl>/api/augmentedDataSet/xxx
+//   (config.baseUrl 形如 http://your-host:port/smartbi/smartbix)
 //
 // http-proxy-middleware v3 在 app.use('/proxy/:id', ...) 挂载时,
 // 自身不会自动 strip 挂载前缀,所以显式 pathRewrite 把 /proxy/<id> 删掉。

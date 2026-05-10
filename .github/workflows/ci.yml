@@ -45,8 +45,8 @@ jobs:
     continue-on-error: true # 后端 schema 漂移不阻断 merge,只警告
     env:
       SMARTBI_TOKEN: ${{ secrets.SMARTBI_TOKEN }}
-      SMARTBI_BASE: ${{ secrets.SMARTBI_BASE || 'http://10.10.202.100:28082/smartbi/smartbix' }}
-      SMARTBI_MODEL_ID: ${{ secrets.SMARTBI_MODEL_ID || 'I8a8aa3ed018ff259f259763901900f943a901c9a' }}
+      SMARTBI_BASE: ${{ secrets.SMARTBI_BASE }}
+      SMARTBI_MODEL_ID: ${{ secrets.SMARTBI_MODEL_ID }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -54,23 +54,23 @@ jobs:
           node-version: '20'
           cache: 'npm'
       - run: npm ci
-      - name: Skip if no token
-        if: env.SMARTBI_TOKEN == ''
+      - name: Skip if no env(token / base / model_id 任一缺失即跳)
+        if: env.SMARTBI_TOKEN == '' || env.SMARTBI_BASE == '' || env.SMARTBI_MODEL_ID == ''
         run: |
-          echo "::warning::SMARTBI_TOKEN 没配置,跳过 probe smoke"
+          echo "::warning::probe 需要 SMARTBI_TOKEN / SMARTBI_BASE / SMARTBI_MODEL_ID 全配,跳过"
           exit 0
       - name: Probe baseline(基础 PivotQuery)
-        if: env.SMARTBI_TOKEN != ''
+        if: env.SMARTBI_TOKEN != '' && env.SMARTBI_BASE != '' && env.SMARTBI_MODEL_ID != ''
         run: npx tsx scripts/probe-baseline.ts
       - name: Probe customElements final(3 cases:enum show/merge + range)
-        if: env.SMARTBI_TOKEN != ''
+        if: env.SMARTBI_TOKEN != '' && env.SMARTBI_BASE != '' && env.SMARTBI_MODEL_ID != ''
         run: npx tsx scripts/probe-final.ts
       - name: Probe calc_measure(3 cases:除/加/混合)
-        if: env.SMARTBI_TOKEN != ''
+        if: env.SMARTBI_TOKEN != '' && env.SMARTBI_BASE != '' && env.SMARTBI_MODEL_ID != ''
         run: npx tsx scripts/probe-calc-final.ts
       - name: Probe edge cases(prefix / includeMin/Max)
-        if: env.SMARTBI_TOKEN != ''
+        if: env.SMARTBI_TOKEN != '' && env.SMARTBI_BASE != '' && env.SMARTBI_MODEL_ID != ''
         run: npx tsx scripts/probe-edge-cases.ts
       - name: Probe adhoc(DetailQuery + isCrossTable)
-        if: env.SMARTBI_TOKEN != ''
+        if: env.SMARTBI_TOKEN != '' && env.SMARTBI_BASE != '' && env.SMARTBI_MODEL_ID != ''
         run: npx tsx scripts/probe-adhoc-cross.ts

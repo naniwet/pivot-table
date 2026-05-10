@@ -18,9 +18,9 @@ import { buildViewConfig } from '../src/fixtures/builders.js';
 import type { Filter, FieldFilter, Query, TupleFilter } from '../src/types/query.js';
 
 const TOKEN = process.env.SMARTBI_TOKEN!;
-const BASE = process.env.SMARTBI_BASE ?? 'http://10.10.202.100:28082/smartbi/smartbix';
+const BASE = process.env.SMARTBI_BASE!;
 const MODEL_ID =
-  process.env.SMARTBI_MODEL_ID ?? 'I8a8aa3ed018ff259f259763901900f943a901c9a';
+  process.env.SMARTBI_MODEL_ID!;
 const THRESHOLD = Number(process.env.PROBE_THRESHOLD ?? 500);
 
 (globalThis as { __SMARTBI_ERR_LIMIT__?: number }).__SMARTBI_ERR_LIMIT__ = 5000;

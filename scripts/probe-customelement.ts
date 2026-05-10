@@ -18,9 +18,9 @@ import type { Metadata } from '../src/types/metadata.js';
 import type { Query, CustomElement } from '../src/types/query.js';
 
 const TOKEN = process.env.SMARTBI_TOKEN;
-const BASE = process.env.SMARTBI_BASE ?? 'http://10.10.202.100:28082/smartbi';
+const BASE = process.env.SMARTBI_BASE!;
 const MODEL_ID =
-  process.env.SMARTBI_MODEL_ID ?? 'I8a8aa3ed018ff259f259763901900f943a901c9a';
+  process.env.SMARTBI_MODEL_ID!;
 
 if (!TOKEN) {
   console.error('SMARTBI_TOKEN env var 没设;用法: SMARTBI_TOKEN=st_xxx npx tsx scripts/probe-customelement.ts');

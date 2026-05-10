@@ -18,7 +18,7 @@ PRD `phase-p0.md` §3.1 + `engineering/p0-dev.md` ADR-004 假设：
 
 ## 探测过程（[scripts/probe-backend.ts](scripts/probe-backend.ts) + 几次手动 curl）
 
-测试模型：`I8a8aa3ed018ff259f259763901900f943a901c9a`，hierarchy = `custom-the_date`（4 级：Year/Quarter/Month/Day）
+测试模型(脱敏占位):`<your_model_id>`,hierarchy = `custom-the_date`(4 级:Year/Quarter/Month/Day)
 
 ### Strategy A（PRD 原方案）：rows=[hierarchy], fields=[DimensionField with HIERARCHY_SHOW]
 

@@ -25,12 +25,12 @@ function makeFetch(body: string, status = 200): typeof globalThis.fetch {
 describe('SmartbiClient — request shape', () => {
   it('GET augmentedDataSet at the documented URL with id encoded', async () => {
     const fetch = makeFetch(EMPTY_CELLSET);
-    const client = new SmartbiClient({ baseUrl: 'http://10.10.202.100:28082/smartbi', fetch });
+    const client = new SmartbiClient({ baseUrl: 'http://example.test/smartbi', fetch });
     await client.fetchMetadata('I8a8aa3ed/with slash').catch(() => {});
 
     const [url, init] = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0]!;
     expect(url).toBe(
-      'http://10.10.202.100:28082/smartbi/api/augmentedDataSet/I8a8aa3ed%2Fwith%20slash',
+      'http://example.test/smartbi/api/augmentedDataSet/I8a8aa3ed%2Fwith%20slash',
     );
     expect((init as RequestInit).method).toBe('GET');
   });

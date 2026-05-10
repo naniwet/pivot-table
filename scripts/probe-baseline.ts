@@ -6,8 +6,8 @@ import { buildQuery } from '../src/core/queryBuilder/buildQuery.js';
 import { buildValueField, buildViewConfig } from '../src/fixtures/builders.js';
 
 const TOKEN = process.env.SMARTBI_TOKEN!;
-const BASE = process.env.SMARTBI_BASE ?? 'http://10.10.202.100:28082/smartbi/smartbix';
-const MODEL_ID = process.env.SMARTBI_MODEL_ID ?? 'I8a8aa3ed018ff259f259763901900f943a901c9a';
+const BASE = process.env.SMARTBI_BASE!;
+const MODEL_ID = process.env.SMARTBI_MODEL_ID!;
 
 const client = new SmartbiClient({ baseUrl: BASE, auth: { token: TOKEN } });
 
