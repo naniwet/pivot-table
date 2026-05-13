@@ -17,6 +17,7 @@ import type { Dispatch } from 'react';
 
 import type { ContextMenuItem } from '../components/ContextMenu/ContextMenu.js';
 import type { DropZone, FieldType } from '../core/dropRules/dropRules.js';
+import { isNumericValueType } from '../core/metadata/fieldDisplayType.js';
 import type { MetadataIndex } from '../core/metadata/fieldIndex.js';
 import type { TimeAxisInfo } from '../core/timeAxis/detectTimeAxis.js';
 import {
@@ -40,6 +41,10 @@ export interface TagMenuTarget {
   fieldType: FieldType;
   x: number;
   y: number;
+}
+
+function isNumericFieldByName(metaIndex: MetadataIndex, fieldName: string): boolean {
+  return isNumericValueType(metaIndex.findByName(fieldName)?.valueType ?? null);
 }
 
 export interface UseTagMenuOptions {
@@ -281,45 +286,71 @@ export function useTagMenu(opts: UseTagMenuOptions): ContextMenuItem[] {
       items.push({ key: 'qc', label: '快速计算', children: qcChildren });
     }
 
-    // P3 显示设置 — 维度类 chip 才暴露"显示小计 / 总计"
-    // 仅 isMatrixView (pivot + table) 下渲染 — adhoc 没合计概念,chart 不渲染合计行
-    if (!isMeasure && viewMode.isMatrixView && (zone === 'row' || zone === 'column')) {
-      items.push({ key: 'sep-totals', separator: true });
-
+    // P3 显示设置 — 维度类 chip 才暴露"显示合计 / 小计"
+    // 排除:
+    //   - Measure / CalcMeasure(值字段,没有合计/小计概念)
+    //   - MeasureGroupName(Σ 度量名称 sentinel chip — 是隐式度量轴占位,
+    //     非真维度,后端不接受按其建合计/小计)
+    // 仅 isMatrixView(pivot + table)下渲染 — adhoc 无合计概念,chart 不渲染合计行
+    //
+    // 关键约定:**两个按钮产生一致的后端 query**(都改 field-level subTotal),
+    //          仅前端 label 按"在轴内是否首位"区分文案:
+    //   - 第 1 个字段 → label "合计"(用户语义:整列/整行的汇总)
+    //   - 第 ≥2 个字段 → label "小计"(用户语义:上层维度组内的汇总)
+    //   两者互斥:一个 chip 只出现一个按钮,不会同时给两个。
+    //
+    // 全表总计开关 `pageState.showGrandTotal` **不在这里 toggle** —
+    // 它是 axis-wide 概念,跟 per-field subTotal 不同语义,UI 入口在 SettingsModal。
+    const isMeasureAxisChip = fieldType === 'MeasureGroupName';
+    if (
+      !isMeasure &&
+      !isMeasureAxisChip &&
+      viewMode.isMatrixView &&
+      (zone === 'row' || zone === 'column')
+    ) {
       const fieldArr = zone === 'row' ? viewConfig.rows : viewConfig.columns;
-      const targetField = fieldArr.find((f) => f.fieldName === fieldName);
-      const subTotalOn = !!targetField?.subTotal && targetField.subTotal !== 'HIDDEN';
-      items.push({
-        key: 'toggle-subtotal',
-        label: subTotalOn ? '✓ 显示小计' : '显示小计',
-        onClick: () =>
-          dispatch({
-            type: 'SET_FIELD_SUB_TOTAL',
-            zone,
-            fieldName,
-            subTotal: subTotalOn ? undefined : 'SHOW',
-          }),
-      });
-
-      const grandOn = viewConfig.pageState.showGrandTotal !== false;
-      items.push({
-        key: 'toggle-grandtotal',
-        label: grandOn ? '✓ 显示总计' : '显示总计',
-        onClick: () => dispatch({ type: 'SET_TOTALS', showGrandTotal: !grandOn }),
-      });
+      const idxInAxis = fieldArr.findIndex((f) => f.fieldName === fieldName);
+      if (idxInAxis >= 0) {
+        const targetField = fieldArr[idxInAxis];
+        const subTotalOn =
+          !!targetField?.subTotal && targetField.subTotal !== 'HIDDEN';
+        const isFirstInAxis = idxInAxis === 0;
+        const labelText = isFirstInAxis ? '显示合计' : '显示小计';
+        items.push({ key: 'sep-totals', separator: true });
+        items.push({
+          key: 'toggle-subtotal',
+          label: subTotalOn ? `✓ ${labelText}` : labelText,
+          // 不管 label 是"合计"还是"小计",dispatch 都一样:改这个字段的 subTotal
+          // → buildQuery 翻译成同一个 DimensionField.subTotal='SHOW',后端 query 一致
+          onClick: () =>
+            dispatch({
+              type: 'SET_FIELD_SUB_TOTAL',
+              zone,
+              fieldName,
+              subTotal: subTotalOn ? undefined : 'SHOW',
+            }),
+        });
+      }
     }
 
-    // P5+ 条件格式化 — 数值区 chip 才出现(per-measure scope)
-    // 仅 isMatrixView 下有意义(adhoc 没数据矩阵;chart 不走 cell 渲染)
-    if (zone === 'value' && viewMode.isMatrixView && onOpenConditionalFormat) {
+    // P5+ 条件格式化 — 两条路径:
+    //   (a) 透视的数值区 chip(per-measure scope)— 仅 isMatrixView
+    //   (b) 明细的行区 chip(per-field scope)— 仅 isAdhoc + 数值列(valueType 是数值类)
+    // chart 模式都不出(不走 cell 渲染)
+    const isPivotValueChip = zone === 'value' && viewMode.isMatrixView;
+    const isAdhocNumericRowChip =
+      zone === 'row' && viewMode.isAdhoc && isNumericFieldByName(metaIndex, fieldName);
+    if (onOpenConditionalFormat && (isPivotValueChip || isAdhocNumericRowChip)) {
       // value zone chip 的 fieldName 是 encoded full name(可能含 @AGG@/@QC@ 后缀),
-      // 条件格式化按 measureName 走 — 拆出原 measureName
-      const decoded = splitMeasureFieldName(fieldName);
+      // 拆出原 measureName;adhoc row 直接用 fieldName(没有编码)
+      const target = isPivotValueChip
+        ? splitMeasureFieldName(fieldName).measureName
+        : fieldName;
       items.push({ key: 'sep-cond-fmt', separator: true });
       items.push({
         key: 'cond-fmt',
         label: '条件格式化…',
-        onClick: () => onOpenConditionalFormat(decoded.measureName),
+        onClick: () => onOpenConditionalFormat(target),
       });
     }
 

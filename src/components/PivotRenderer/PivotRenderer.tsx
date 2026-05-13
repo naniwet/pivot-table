@@ -20,9 +20,13 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEve
 import { clampColumnWidth } from '../../core/columnResize/clampColumnWidth.js';
 import { buildRowHeaderSpans } from '../../core/cellSetParser/rowHeaderSpans.js';
 import { computeColRanges } from '../../core/conditionalFormat/computeColRanges.js';
+import { computeTopBottomCutoffs } from '../../core/conditionalFormat/computeTopBottomCutoffs.js';
 import {
+  computeRowScopeStyles,
   evaluateDataBar,
   evaluateThreshold,
+  evaluateTopBottom,
+  getRuleScope,
   hasRulesFor,
 } from '../../core/conditionalFormat/evaluateRule.js';
 import {
@@ -39,7 +43,11 @@ import {
 } from '../../core/export/extractSelectionTsv.js';
 import { formatErrorForDisplay } from '../../types/error.js';
 import type { RenderModel, RowHeaderNode } from '../../types/renderModel.js';
-import type { Sort, ViewConfig } from '../../types/viewConfig.js';
+import {
+  filterConditionalFormatsByMode,
+  type Sort,
+  type ViewConfig,
+} from '../../types/viewConfig.js';
 
 export interface PivotRendererProps {
   renderModel: RenderModel | null;
@@ -361,11 +369,47 @@ export function PivotRenderer({
   // 列宽 state（P1.5）：按 fieldName 索引；不在则用 CSS 默认（auto）
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
   // P5+ 条件格式化:rules + 列实际 min/max(给 dataBar range='auto' 用)
-  const condFormats = viewConfig.pageState.conditionalFormats ?? [];
+  // PivotRenderer 只消费 mode='pivot' 的规则(包括旧序列化 undefined,视为 pivot)
+  const condFormats = filterConditionalFormatsByMode(
+    viewConfig.pageState.conditionalFormats ?? [],
+    'pivot',
+  );
   const colRanges = useMemo(
     () => (renderModel && condFormats.length > 0 ? computeColRanges(renderModel) : null),
     [renderModel, condFormats.length],
   );
+  // P5+ topN/bottomN cutoffs(per-rule),按当前页排名;无 topN/bottomN 规则时早退为 null
+  const topBottomCutoffs = useMemo(
+    () =>
+      renderModel && condFormats.length > 0
+        ? computeTopBottomCutoffs(renderModel, condFormats)
+        : null,
+    [renderModel, condFormats],
+  );
+  // P5+ row-scope styles:rule.scope='row' 的规则预算 Map<rowIdx, style>
+  // 命中 → 该整行所有 cell 都套样式(行表头 + 数据列都拿到)
+  const rowScopeStyles = useMemo(() => {
+    if (!renderModel || condFormats.length === 0) return null;
+    // 该 measure 在 matrix 中可能跨多 column tuple — row-scope 只看是否命中,取首个
+    const cellValueAt = (r: number, measure: string): number | null => {
+      const row = renderModel.matrix[r];
+      if (!row) return null;
+      for (let c = 0; c < renderModel.columnHeader.length; c++) {
+        if (renderModel.columnHeader[c]?.fieldName !== measure) continue;
+        const cell = row[c];
+        if (!cell || cell.isEmpty || cell.isMasked) continue;
+        const v = cell.value;
+        if (typeof v === 'number' && Number.isFinite(v)) return v;
+      }
+      return null;
+    };
+    return computeRowScopeStyles(
+      condFormats,
+      renderModel.matrix.length,
+      cellValueAt,
+      topBottomCutoffs ?? new Map(),
+    );
+  }, [renderModel, condFormats, topBottomCutoffs]);
   // P3+ 多列行头冻结(P5+ 修复:之前只有 col 0 sticky,多 dim 时其他列滚走)
   // 测量每个 row header 列的 offsetWidth → 算累积 left → 内联到 th style
   const tableRef = useRef<HTMLTableElement>(null);
@@ -917,6 +961,15 @@ export function PivotRenderer({
                         });
                       }
                     : undefined;
+                // P5+ 行 row-scope 条件格式化 — 行表头也套样式(视觉连贯)
+                const rowScopeForTh = rowScopeStyles?.get(r);
+                const thInlineStyle: CSSProperties = {};
+                if (stickyLeft !== undefined) thInlineStyle.left = `${stickyLeft}px`;
+                if (rowScopeForTh) {
+                  if (rowScopeForTh.bg) thInlineStyle.backgroundColor = rowScopeForTh.bg;
+                  if (rowScopeForTh.fg) thInlineStyle.color = rowScopeForTh.fg;
+                  if (rowScopeForTh.bold) thInlineStyle.fontWeight = 600;
+                }
                 return (
                   <th
                     key={`r-${r}-l-${lvlIdx}`}
@@ -927,7 +980,7 @@ export function PivotRenderer({
                     data-row-header-col={lvlIdx}
                     className="pivot-row-header"
                     rowSpan={span > 1 ? span : undefined}
-                    style={stickyLeft !== undefined ? { left: `${stickyLeft}px` } : undefined}
+                    style={Object.keys(thInlineStyle).length > 0 ? thInlineStyle : undefined}
                     onContextMenu={handleRowMemberContext}
                   >
                     {/* drill ▼ ▶ chevrons 仅在最后一个 row label cell 显示 */}
@@ -998,6 +1051,15 @@ export function PivotRenderer({
                 let cellInlineStyle: CSSProperties | undefined;
                 let dataBarNode: ReactNode = null;
                 const cellMeasure = colHeader?.fieldName;
+                // P5+ row-scope fallback:命中 → 整行所有 cell 默认套该 style(空 cell 也套)
+                const rowScopeStyle = rowScopeStyles?.get(r);
+                if (rowScopeStyle) {
+                  cellInlineStyle = {
+                    ...(rowScopeStyle.bg ? { backgroundColor: rowScopeStyle.bg } : {}),
+                    ...(rowScopeStyle.fg ? { color: rowScopeStyle.fg } : {}),
+                    ...(rowScopeStyle.bold ? { fontWeight: 600 } : {}),
+                  };
+                }
                 if (
                   cellMeasure &&
                   !cell.isEmpty &&
@@ -1006,12 +1068,29 @@ export function PivotRenderer({
                   condFormats.length > 0 &&
                   hasRulesFor(condFormats, cellMeasure)
                 ) {
-                  const tStyle = evaluateThreshold(condFormats, cellMeasure, cell.value);
-                  if (tStyle.bg || tStyle.fg || tStyle.bold) {
+                  // 优先级:cell-scope > row-scope;cell 内 threshold > topN/bottomN
+                  // (cell-scope 规则更"具体" — 用户点的某 cell 的具体条件 wins)
+                  // 注意:evaluateThreshold / evaluateTopBottom 不过滤 scope,需要先切片
+                  const cellRules = condFormats.filter((r) => getRuleScope(r) === 'cell');
+                  let resolvedStyle = evaluateThreshold(cellRules, cellMeasure, cell.value);
+                  if (
+                    !resolvedStyle.bg &&
+                    !resolvedStyle.fg &&
+                    !resolvedStyle.bold &&
+                    topBottomCutoffs
+                  ) {
+                    resolvedStyle = evaluateTopBottom(
+                      cellRules,
+                      cellMeasure,
+                      cell.value,
+                      topBottomCutoffs,
+                    );
+                  }
+                  if (resolvedStyle.bg || resolvedStyle.fg || resolvedStyle.bold) {
                     cellInlineStyle = {
-                      ...(tStyle.bg ? { backgroundColor: tStyle.bg } : {}),
-                      ...(tStyle.fg ? { color: tStyle.fg } : {}),
-                      ...(tStyle.bold ? { fontWeight: 600 } : {}),
+                      ...(resolvedStyle.bg ? { backgroundColor: resolvedStyle.bg } : {}),
+                      ...(resolvedStyle.fg ? { color: resolvedStyle.fg } : {}),
+                      ...(resolvedStyle.bold ? { fontWeight: 600 } : {}),
                     };
                   }
                   const bar = evaluateDataBar(

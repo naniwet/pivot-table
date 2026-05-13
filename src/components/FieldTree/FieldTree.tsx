@@ -17,6 +17,7 @@ import { useState, type CSSProperties, type DragEvent, type MouseEvent as ReactM
 
 import { encodePivotField, PIVOT_FIELD_MIME } from '../../core/dropRules/dragProtocol.js';
 import type { FieldType } from '../../core/dropRules/dropRules.js';
+import { deriveFieldDisplayType } from '../../core/metadata/fieldDisplayType.js';
 import {
   getAlias,
   getDesc,
@@ -237,6 +238,8 @@ function renderNode(node: FieldNode, ctx: RenderCtx): ReactNode {
   const renderChildren = kind === 'Hierarchy' && node.children.length > 0;
   const alias = getAlias(node);
   const desc = getDesc(node);
+  // P5+ 数据类型 — 用于 Dimension 字段 icon 细分(time level 用日期 icon 而非默认 Aa)
+  const displayType = deriveFieldDisplayType(node);
 
   const handleDragStart = (e: DragEvent<HTMLDivElement>) => {
     if (!draggable) {
@@ -323,6 +326,7 @@ function renderNode(node: FieldNode, ctx: RenderCtx): ReactNode {
         key={node.id}
         className="field-tree__hierarchy"
         data-field-type={fieldType}
+        data-display-type={displayType ?? undefined}
         data-draggable={draggable}
         data-collapsed={collapsed ? 'true' : undefined}
         draggable={draggable}
@@ -373,6 +377,7 @@ function renderNode(node: FieldNode, ctx: RenderCtx): ReactNode {
       key={node.id}
       className="field-tree__field"
       data-field-type={fieldType}
+      data-display-type={displayType ?? undefined}
       data-draggable={draggable}
       title={desc}
       draggable={draggable}

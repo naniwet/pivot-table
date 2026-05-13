@@ -34,6 +34,7 @@ import type { DropZone, FieldType } from '../../core/dropRules/dropRules.js';
 import { buildQueryFor } from '../../core/queryBuilder/buildQueryFor.js';
 import { canViewDetail } from '../../core/drillThrough/buildDetailQuery.js';
 import { parseCellSet } from '../../core/cellSetParser/parseCellSet.js';
+import { isNumericValueType } from '../../core/metadata/fieldDisplayType.js';
 import { computeViewMode } from '../../core/viewMode/viewMode.js';
 import { useAvailableFields } from '../../hooks/useAvailableFields.js';
 import { useCellMenu } from '../../hooks/useCellMenu.js';
@@ -554,14 +555,19 @@ function PivotTableInner({
   // P2: chip 右键菜单（zone 内字段操作）— 多级菜单:排序 ▶ / 位置 ▶ / 快速计算 ▶ / 移除
   const closeTagMenu = () => setTagMenu(null);
 
-  // P5+ 条件格式化 modal:null 关闭,string 是当前编辑的 measure name
-  const [condFormatTarget, setCondFormatTarget] = useState<string | null>(null);
+  // P5+ 条件格式化 modal:null 关闭,object 含 measure 名 + 当前 mode(透视/明细 隔离规则)
+  const [condFormatTarget, setCondFormatTarget] = useState<
+    { measure: string; mode: 'pivot' | 'adhoc' } | null
+  >(null);
 
   // chip 右键菜单 items(挪到 useTagMenu 里实现)
   const tagMenuItems = useTagMenu({
     tagMenu, viewConfig, metaIndex, timeAxis, allTimeAxes, viewMode, dispatch,
     onOpenConditionalFormat: (m) => {
-      setCondFormatTarget(m);
+      // mode 跟当前 viewMode 一致:
+      //   pivot 模式 → 数值区 chip 触发,m 是 measureName
+      //   adhoc 模式 → 行区数值 chip 触发,m 是 fieldName
+      setCondFormatTarget({ measure: m, mode: isAdhoc ? 'adhoc' : 'pivot' });
       closeTagMenu();
     },
   });
@@ -588,12 +594,32 @@ function PivotTableInner({
 
   // P5+ 字段级表头右键菜单 items — 抽到 useColumnHeaderMenu hook 实现
   // 适用:adhoc 列头 / pivot corner / pivot 度量列头(都是字段级,只做排序+复制)
+  // adhoc 数值列额外渲染"条件格式化…" — hook 内部按 valueType 判断,这里只传 callback
   const columnHeaderMenuItems = useColumnHeaderMenu({
     columnHeaderMenu,
     viewConfig,
     metaIndex,
     dispatch,
+    onOpenConditionalFormat: isAdhoc
+      ? (fieldName) => {
+          setCondFormatTarget({ measure: fieldName, mode: 'adhoc' });
+          setColumnHeaderMenu(null);
+        }
+      : undefined,
   });
+
+  // P5+ adhoc 条件格式化:viewConfig.rows 里哪些 fieldName 是数值类
+  // 在 PivotTable 层算一次,DetailRenderer 内部不重复查 metaIndex
+  const adhocNumericFieldNames = useMemo(() => {
+    if (!isAdhoc) return undefined;
+    const out = new Set<string>();
+    for (const r of viewConfig.rows) {
+      if (isNumericValueType(metaIndex.findByName(r.fieldName)?.valueType ?? null)) {
+        out.add(r.fieldName);
+      }
+    }
+    return out;
+  }, [isAdhoc, viewConfig.rows, metaIndex]);
 
   // P5+ 行/列头成员级右键菜单 items(In/NotIn 过滤)
   const memberContextMenuItems = useMemberContextMenu({
@@ -833,6 +859,8 @@ function PivotTableInner({
             onColumnContextMenu={(info) =>
               setColumnHeaderMenu({ ...info, sortKind: 'ByDimension' })
             }
+            // P5+ 条件格式化:adhoc 仅数值列适用;按 viewConfig.rows 顺序解析 valueType
+            numericFieldNames={adhocNumericFieldNames}
           />
         ) : viewConfig.pageState.displayMode === 'chart' ? (
           // P3+ 图表模式:不渲染 PivotRenderer 表格,改用 ChartRenderer
@@ -1355,28 +1383,32 @@ function PivotTableInner({
         isAdhoc={isAdhoc}
       />
 
-      {/* P5+ 条件格式化 modal — 数值区 chip 右键 "条件格式化…" 触发 */}
+      {/* P5+ 条件格式化 modal — 数值区 chip(pivot)/ 列头右键(adhoc 数值列)触发 */}
       {condFormatTarget !== null && (
         <ConditionalFormatModal
-          measure={condFormatTarget}
-          measureAlias={metaIndex.findByName(condFormatTarget)?.alias}
+          measure={condFormatTarget.measure}
+          measureAlias={metaIndex.findByName(condFormatTarget.measure)?.alias}
+          mode={condFormatTarget.mode}
           rules={(viewConfig.pageState.conditionalFormats ?? []).filter(
-            (r) => r.measure === condFormatTarget,
+            (r) =>
+              r.measure === condFormatTarget.measure &&
+              (r.mode ?? 'pivot') === condFormatTarget.mode,
           )}
           onApply={(nextRules) => {
-            // 算 diff:
-            //   原 rules(该 measure 的)→ nextRules(modal 草稿)
-            //   先按 id 比对:存在的 → UPDATE,新的 → ADD,旧的不在 next → REMOVE
+            // 算 diff(按 id):
+            //   - 删:旧的不在新的里 → REMOVE
+            //   - 加 / 改:其余 → ADD / UPDATE
+            // 仅对"同 measure + 同 mode"的 rule 做 diff,避免误删其他 mode 的规则
             const oldRules = (viewConfig.pageState.conditionalFormats ?? []).filter(
-              (r) => r.measure === condFormatTarget,
+              (r) =>
+                r.measure === condFormatTarget.measure &&
+                (r.mode ?? 'pivot') === condFormatTarget.mode,
             );
             const oldIds = new Set(oldRules.map((r) => r.id));
             const nextIds = new Set(nextRules.map((r) => r.id));
-            // 删:旧的不在新的里
             for (const r of oldRules) {
               if (!nextIds.has(r.id)) dispatch({ type: 'REMOVE_CONDITIONAL_FORMAT', id: r.id });
             }
-            // 加 / 改
             for (const r of nextRules) {
               if (oldIds.has(r.id)) dispatch({ type: 'UPDATE_CONDITIONAL_FORMAT', rule: r });
               else dispatch({ type: 'ADD_CONDITIONAL_FORMAT', rule: r });

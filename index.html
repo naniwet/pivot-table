@@ -959,11 +959,44 @@
         flex-shrink: 0;
         font-family: var(--font-sans);
       }
-      /* 维度 / 度量是最常用两类字段,色彩对比要强 — 维度 teal,度量主蓝(下面 Measure 段) */
+      /* 维度 / 度量是最常用两类字段,色彩对比要强 — 维度默认 teal (文本字段);
+       * 数据类型 override 在下面 [data-display-type] 段,time level / 数值 dim 走那条 */
       .field-tree__field[data-field-type="Dimension"]::before {
         content: 'Aa';
         background: var(--teal-bg);
         color: var(--teal);
+      }
+      /* P5+ 数据类型 override(Dimension 用)— time level 走 date 不再误标 Aa */
+      .field-tree__field[data-field-type="Dimension"][data-display-type="numeric"]::before {
+        content: '#';
+        background: var(--primary-bg);
+        color: var(--primary);
+        font-size: 12px;
+        letter-spacing: 0;
+      }
+      .field-tree__field[data-field-type="Dimension"][data-display-type="date"]::before {
+        /* CSS-drawn calendar:橙底里画 10x10 calendar(顶栏 + 矩形外框)
+         * 完全 monochrome,respects currentColor */
+        content: '';
+        color: var(--orange);
+        background:
+          /* 顶栏(calendar header,加粗一点) */
+          linear-gradient(currentColor, currentColor) 4px 3px / 10px 3px no-repeat,
+          /* 下边 */
+          linear-gradient(currentColor, currentColor) 4px 12px / 10px 1px no-repeat,
+          /* 左边 */
+          linear-gradient(currentColor, currentColor) 4px 6px / 1px 6px no-repeat,
+          /* 右边 */
+          linear-gradient(currentColor, currentColor) 13px 6px / 1px 6px no-repeat,
+          /* 底色 */
+          var(--orange-bg);
+      }
+      .field-tree__field[data-field-type="Dimension"][data-display-type="boolean"]::before {
+        content: '✓';
+        background: var(--purple-bg);
+        color: var(--purple);
+        font-size: 12px;
+        letter-spacing: 0;
       }
       .field-tree__hierarchy > .field-tree__field-label::before {
         content: '≡';
@@ -1108,6 +1141,63 @@
       .dropzone__tag-suffix {
         color: var(--gray-500);
         font-size: var(--fs-xs);
+      }
+      /* P5+ 数据类型 icon — 跟 FieldTree 同款 18x16 方形彩色徽章,glyph 来自 ::before content
+       * 4 种 data-type:numeric(#) / text(Aa) / date(日) / boolean(✓)
+       * 不同颜色对应不同语义,弱视觉权重(右侧 chip 中加点子标识用) */
+      .dropzone__tag-type {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 18px;
+        height: 16px;
+        margin-right: 6px;
+        border-radius: 3px;
+        font-size: 10px;
+        font-weight: 700;
+        line-height: 1;
+        letter-spacing: -0.5px;
+        flex-shrink: 0;
+        font-family: var(--font-sans);
+      }
+      .dropzone__tag-type[data-type="numeric"]::before {
+        content: '#';
+        font-size: 12px;
+        letter-spacing: 0;
+      }
+      .dropzone__tag-type[data-type="text"]::before { content: 'Aa'; }
+      .dropzone__tag-type[data-type="date"]::before {
+        /* CSS-drawn calendar:小矩形 + 加粗顶栏(模拟日历表头)。
+         * 完全 monochrome,跟 Aa/Σ/# 同色调,respects currentColor */
+        content: '';
+        display: block;
+        width: 10px;
+        height: 9px;
+        border: 1.5px solid currentColor;
+        border-top: 3px solid currentColor;
+        border-radius: 1px;
+        box-sizing: border-box;
+      }
+      .dropzone__tag-type[data-type="boolean"]::before {
+        content: '✓';
+        font-size: 12px;
+        letter-spacing: 0;
+      }
+      .dropzone__tag-type[data-type="numeric"] {
+        color: var(--primary);
+        background: var(--primary-bg);
+      }
+      .dropzone__tag-type[data-type="text"] {
+        color: var(--teal);
+        background: var(--teal-bg);
+      }
+      .dropzone__tag-type[data-type="date"] {
+        color: var(--orange);
+        background: var(--orange-bg);
+      }
+      .dropzone__tag-type[data-type="boolean"] {
+        color: var(--purple);
+        background: var(--purple-bg);
       }
       /* 排序状态箭头 */
       .dropzone__tag-sort {

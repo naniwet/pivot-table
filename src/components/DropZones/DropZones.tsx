@@ -32,6 +32,11 @@ import {
   MEASURE_AXIS_FIELD_NAME,
   isMeasureAxisField,
 } from '../../core/queryBuilder/measureAxis.js';
+import {
+  deriveFieldDisplayType,
+  DISPLAY_TYPE_LABELS,
+  type FieldDisplayType,
+} from '../../core/metadata/fieldDisplayType.js';
 import type { Metadata } from '../../types/metadata.js';
 import type { QuickCalculation } from '../../types/query.js';
 import type { ViewConfig } from '../../types/viewConfig.js';
@@ -106,6 +111,14 @@ interface FieldTag {
   quickCalcLabel?: string | null;
   /** P2: 当前排序方向（4 种之一，或 null 表示未参与排序） */
   sortDirection?: 'ASC' | 'DESC' | 'BASC' | 'BDESC' | null;
+  /**
+   * P5+ 数据类型 key — 'numeric' / 'text' / 'date' / 'boolean' / null
+   *   - CSS 按这个 key 渲染图标 + 颜色(::before)
+   *   - 中文短词靠 title 属性走 tooltip
+   *   - 用 metadata.fields[].valueType + nodes[].type 联合推导
+   *   - null:未知类型 或 sentinel(度量名称占位)— UI 不渲染图标
+   */
+  displayType?: FieldDisplayType | null;
   /**
    * P5+ 当前 chip 在该 mode 下不生效(灰显 + tooltip 提示)。
    * 典型场景:adhoc 模式下度量过滤器 — 后端 DetailQuery 不解析 measureFilters,
@@ -277,6 +290,17 @@ function ZoneView({
                 });
               }}
             >
+              {/* P5+ 数据类型 icon — 在 alias 前(跟 FieldTree 同位置),CSS ::before 渲染图标
+                 (Aa / # / 日 / ✓)按 data-type 切换。中文标签走 title tooltip */}
+              {f.displayType && (
+                <span
+                  className="dropzone__tag-type"
+                  data-type={f.displayType}
+                  data-testid={`tag-type-${f.name}`}
+                  title={`数据类型:${DISPLAY_TYPE_LABELS[f.displayType]}`}
+                  aria-label={`数据类型 ${DISPLAY_TYPE_LABELS[f.displayType]}`}
+                />
+              )}
               {f.alias}
               {/* 排序状态箭头：4 种之一（仅在该字段参与排序时显示）*/}
               {f.sortDirection && (
@@ -346,6 +370,9 @@ export function DropZones({
   }, [viewConfig.customFields]);
   const aliasOf = (name: string): string =>
     idx.findByName(name)?.alias ?? customNameById.get(name) ?? name;
+  // P5+ 数据类型 badge:从 metaIndex 推导;customField / sentinel 返回 null,UI 不渲染
+  const displayTypeOf = (name: string): FieldTag['displayType'] =>
+    deriveFieldDisplayType(idx.findByName(name));
 
   // P2: 字段当前排序方向（用于 chip 上的状态箭头）
   const sortDirOf = (fieldName: string): FieldTag['sortDirection'] => {
@@ -370,12 +397,14 @@ export function DropZones({
     dragFieldName: r.fieldName,
     alias: isMeasureAxisField(r) ? 'Σ 度量名称' : aliasOf(r.fieldName),
     fieldType: r.type as FieldType,
+    displayType: isMeasureAxisField(r) ? null : displayTypeOf(r.fieldName),
   }));
   const columnFields: FieldTag[] = viewConfig.columns.map((c) => ({
     name: c.fieldName,
     dragFieldName: c.fieldName,
     alias: isMeasureAxisField(c) ? 'Σ 度量名称' : aliasOf(c.fieldName),
     fieldType: c.type as FieldType,
+    displayType: isMeasureAxisField(c) ? null : displayTypeOf(c.fieldName),
   }));
   // 用户没显式拖动 → 在列轴末尾**隐式**显示一个 Σ chip（占位，告诉用户度量在列）
   // 拖到行后 viewConfig 真正记录此字段（implicit → explicit）
@@ -404,6 +433,7 @@ export function DropZones({
       // 拖到行/列的 dropRules 会拒绝,预期行为正确)
       fieldType: 'Measure' as FieldType,
       quickCalcLabel: null, // 已 inline 到 alias,不再单独显示
+      displayType: displayTypeOf(v.measureName),
     };
   });
   // 派生 mode flag(单源 — computeViewMode);adhoc 下 measureFilter 灰显,zone 显示规则 等都用它
@@ -414,7 +444,7 @@ export function DropZones({
   const filterFields: FieldTag[] = [
     ...viewConfig.filters
       .filter((f) => f.kind === 'leaf')
-      .map((f) => {
+      .map((f): FieldTag => {
         const fName = (f as { field: string }).field;
         return {
           name: fName,
@@ -422,6 +452,7 @@ export function DropZones({
           alias: aliasOf(fName),
           // 维度 filter 默认 'Dimension'(实际 type 不影响拖到 row/column,dropRules 一致)
           fieldType: 'Dimension' as FieldType,
+          displayType: displayTypeOf(fName),
         };
       }),
     // 度量过滤:仅 leaf 节点显示在 DropZones 的 filter 区(group 在 FilterPanel 上方有专门 chip)
@@ -435,6 +466,7 @@ export function DropZones({
         dragFieldName: mf.measureName,
         alias: aliasOf(mf.measureName),
         fieldType: 'Measure' as FieldType,
+        displayType: displayTypeOf(mf.measureName),
         // adhoc 模式下度量过滤不生效 → 灰显
         disabled: isAdhocMode,
         disabledReason: isAdhocMode

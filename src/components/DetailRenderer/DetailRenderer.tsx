@@ -12,12 +12,25 @@
  * cellSet 解析复用 parseCellSet 给的 RenderModel — adhoc query 返回的 cellSet 也走同一个 schema,
  * RenderModel.rowHeader[].fullPath 长度 = row 字段数,matrix[r][c] 是数据。
  */
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 
 import { clampColumnWidth } from '../../core/columnResize/clampColumnWidth.js';
+import { computeAdhocStats } from '../../core/conditionalFormat/computeAdhocStats.js';
+import {
+  computeRowScopeStyles,
+  evaluateDataBar,
+  evaluateThreshold,
+  evaluateTopBottom,
+  getRuleScope,
+  hasRulesFor,
+} from '../../core/conditionalFormat/evaluateRule.js';
 import { formatErrorForDisplay } from '../../types/error.js';
 import type { RenderModel } from '../../types/renderModel.js';
-import type { Sort, ViewConfig } from '../../types/viewConfig.js';
+import {
+  filterConditionalFormatsByMode,
+  type Sort,
+  type ViewConfig,
+} from '../../types/viewConfig.js';
 
 export interface DetailRendererProps {
   renderModel: RenderModel | null;
@@ -38,6 +51,12 @@ export interface DetailRendererProps {
    * 传了 → 列头 onContextMenu 触发,宿主负责弹 ContextMenu(常含:排序、按值过滤、复制列名)
    */
   onColumnContextMenu?: (info: { fieldName: string; x: number; y: number }) => void;
+  /**
+   * P5+ 条件格式化 — 哪些列是数值列(白名单 fieldName 集合)。
+   * 仅这些列会跑 evaluator 着色 / 画 dataBar。父组件按 metadata.valueType 计算后传入。
+   * 不传 → 所有列都不参与条件格式化(等同空 Set)。
+   */
+  numericFieldNames?: ReadonlySet<string>;
   className?: string;
   style?: CSSProperties;
 }
@@ -59,6 +78,7 @@ export function DetailRenderer({
   rowFieldLabels,
   freezeHeader = true,
   onColumnContextMenu,
+  numericFieldNames,
   className,
   style,
 }: DetailRendererProps): ReactNode {
@@ -147,6 +167,51 @@ export function DetailRenderer({
   // 这里把 rowHeader.fullPath 做"所有列",matrix 不渲染(保留给将来扩展)
   const rowHeaderLevels = Math.max(1, renderModel.rowHeader[0]?.fullPath.length ?? 1);
 
+  // P5+ 条件格式化:adhoc mode 的规则在 DetailRenderer 内消费
+  // 仅当传入 numericFieldNames(白名单)+ 有 adhoc 规则时才跑 evaluator,否则零开销
+  const condFormats = filterConditionalFormatsByMode(
+    viewConfig.pageState.conditionalFormats ?? [],
+    'adhoc',
+  );
+  const numericCols = numericFieldNames ?? new Set<string>();
+  const columnFieldNames = useMemo(
+    () =>
+      Array.from(
+        { length: rowHeaderLevels },
+        (_, i) => viewConfig.rows[i]?.fieldName ?? '',
+      ),
+    [viewConfig.rows, rowHeaderLevels],
+  );
+  const adhocStats = useMemo(() => {
+    if (condFormats.length === 0 || numericCols.size === 0) return null;
+    return computeAdhocStats({
+      rows: renderModel.rowHeader,
+      columnFieldNames,
+      numericFieldNames: numericCols,
+      rules: condFormats,
+    });
+  }, [renderModel.rowHeader, columnFieldNames, numericCols, condFormats]);
+
+  // P5+ row-scope styles:命中 → 整行所有 cell 套样式(包括非数值列 / 字符串列)
+  const rowScopeStyles = useMemo(() => {
+    if (condFormats.length === 0 || numericCols.size === 0 || !adhocStats) return null;
+    const cellValueAt = (r: number, measure: string): number | null => {
+      if (!numericCols.has(measure)) return null;
+      const c = columnFieldNames.indexOf(measure);
+      if (c < 0) return null;
+      const raw = renderModel.rowHeader[r]?.fullPath[c];
+      if (raw === '' || raw == null) return null;
+      const n = typeof raw === 'number' ? raw : Number(raw);
+      return Number.isFinite(n) ? n : null;
+    };
+    return computeRowScopeStyles(
+      condFormats,
+      renderModel.rowHeader.length,
+      cellValueAt,
+      adhocStats.cutoffsByRuleId,
+    );
+  }, [renderModel.rowHeader, columnFieldNames, numericCols, condFormats, adhocStats]);
+
   return (
     <div
       className={wrapperClass}
@@ -233,13 +298,92 @@ export function DetailRenderer({
                 const value = rn.fullPath[c] ?? '';
                 const isEmpty = value === '' || value == null;
                 const display = isEmpty && emptyText ? emptyText : value;
+
+                // P5+ 条件格式化
+                let cellInlineStyle: CSSProperties | undefined;
+                let dataBarNode: ReactNode = null;
+                const fieldName = columnFieldNames[c];
+
+                // 1. row-scope:整行命中 → 所有 cell 默认套样式(连非数值列也套)
+                const rowScopeStyle = rowScopeStyles?.get(r);
+                if (rowScopeStyle) {
+                  cellInlineStyle = {
+                    ...(rowScopeStyle.bg ? { backgroundColor: rowScopeStyle.bg } : {}),
+                    ...(rowScopeStyle.fg ? { color: rowScopeStyle.fg } : {}),
+                    ...(rowScopeStyle.bold ? { fontWeight: 600 } : {}),
+                  };
+                }
+
+                // 2. cell-scope:数值列 + 命中 → 覆盖 row-scope(更具体优先)
+                if (
+                  fieldName &&
+                  !isEmpty &&
+                  adhocStats &&
+                  numericCols.has(fieldName) &&
+                  condFormats.length > 0 &&
+                  hasRulesFor(condFormats, fieldName)
+                ) {
+                  const num = typeof value === 'number' ? value : Number(value);
+                  if (Number.isFinite(num)) {
+                    // 只跑 scope='cell' 的规则(否则 row-scope 会被错当 cell-scope 重复套样式)
+                    const cellRules = condFormats.filter((rl) => getRuleScope(rl) === 'cell');
+                    let resolvedStyle = evaluateThreshold(cellRules, fieldName, num);
+                    if (
+                      !resolvedStyle.bg &&
+                      !resolvedStyle.fg &&
+                      !resolvedStyle.bold
+                    ) {
+                      resolvedStyle = evaluateTopBottom(
+                        cellRules,
+                        fieldName,
+                        num,
+                        adhocStats.cutoffsByRuleId,
+                      );
+                    }
+                    if (resolvedStyle.bg || resolvedStyle.fg || resolvedStyle.bold) {
+                      cellInlineStyle = {
+                        ...(resolvedStyle.bg
+                          ? { backgroundColor: resolvedStyle.bg }
+                          : {}),
+                        ...(resolvedStyle.fg ? { color: resolvedStyle.fg } : {}),
+                        ...(resolvedStyle.bold ? { fontWeight: 600 } : {}),
+                      };
+                    }
+                    // dataBar 跟 scope 无关,任何时候独立画(对数值列)
+                    const bar = evaluateDataBar(
+                      condFormats,
+                      fieldName,
+                      num,
+                      adhocStats.colRanges.get(fieldName) ?? null,
+                    );
+                    if (bar) {
+                      dataBarNode = (
+                        <span
+                          className="pivot-cell-data-bar"
+                          aria-hidden
+                          data-testid={`databar-r${r}-c${c}`}
+                          style={{
+                            width: `${bar.percent * 100}%`,
+                            backgroundColor: bar.color,
+                          }}
+                        />
+                      );
+                    }
+                  }
+                }
+
                 return (
                   <td
                     key={c}
-                    className="pivot-cell"
+                    data-testid={`adhoc-cell-r${r}-c${c}`}
+                    className={
+                      dataBarNode ? 'pivot-cell pivot-cell--has-databar' : 'pivot-cell'
+                    }
                     data-empty={isEmpty ? 'true' : undefined}
+                    style={cellInlineStyle}
                   >
-                    {display}
+                    {dataBarNode}
+                    <span className="pivot-cell-text">{display}</span>
                   </td>
                 );
               })}

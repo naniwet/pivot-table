@@ -8,11 +8,26 @@
  *   I3. dataBar 规则跟 threshold 互不影响(同 cell 可同时画 bar + 着色)
  *   I4. value=null/undefined/NaN → 不应用任何 style(空 cell)
  *   I5. between 时 value 是 [min, max],闭区间 [min, max](含两端)
+ *   I6. topN/bottomN:cutoff 由 computeTopBottomCutoffs 预算,evaluateTopBottom 仅判定
+ *       并列(value === cutoff)算命中
+ *   I7. 优先级 threshold > topN/bottomN(renderer 层决定;此模块只各自评估,合并交调用方)
  */
 import type {
   ConditionalFormatRule,
+  ConditionalFormatScope,
   ConditionalFormatThresholdCondition,
 } from '../../types/viewConfig.js';
+
+import type { CutoffsByRuleId } from './computeTopBottomCutoffs.js';
+
+/**
+ * 安全取 rule.scope — dataBar 没有 scope 字段(union 里没声明),固定返回 'cell'。
+ * threshold / topN / bottomN 的 scope 缺省 → 'cell'(向后兼容旧序列化)。
+ */
+export function getRuleScope(rule: ConditionalFormatRule): ConditionalFormatScope {
+  if (rule.kind === 'dataBar') return 'cell';
+  return rule.scope ?? 'cell';
+}
 
 export interface CellFormatStyle {
   bg?: string;
@@ -103,4 +118,98 @@ export function evaluateDataBar(
  */
 export function hasRulesFor(rules: ConditionalFormatRule[], measure: string): boolean {
   return rules.some((r) => r.measure === measure);
+}
+
+/**
+ * 评估 topN/bottomN rules → 应用的 style(命中第一条 topN/bottomN rule 即返回)。
+ *
+ * 调用前应先 computeTopBottomCutoffs(model, rules) 拿到 cutoffs。
+ *
+ * 语义:
+ *   - kind='topN'  且 cellValue >= cutoff → 命中
+ *   - kind='bottomN' 且 cellValue <= cutoff → 命中
+ *   - 同 measure 多条 topN/bottomN rule → 按数组顺序,第一条命中即返回
+ *   - cutoffs.get(rule.id) === undefined → 跳过(列全空或 n<=0)
+ *
+ * 跟 evaluateThreshold 配合:renderer 先 evaluateThreshold,空 style 再 evaluateTopBottom。
+ */
+export function evaluateTopBottom(
+  rules: ConditionalFormatRule[],
+  measure: string,
+  cellValue: number,
+  cutoffs: CutoffsByRuleId,
+): CellFormatStyle {
+  for (const rule of rules) {
+    if (rule.kind !== 'topN' && rule.kind !== 'bottomN') continue;
+    if (rule.measure !== measure) continue;
+    const cut = cutoffs.get(rule.id);
+    if (!cut) continue;
+    const hit = rule.kind === 'topN' ? cellValue >= cut.cutoff : cellValue <= cut.cutoff;
+    if (hit) return { ...rule.style };
+  }
+  return {};
+}
+
+/**
+ * 评估单条 rule 是否命中给定数值 → 命中返回 style,不命中返回空。
+ * 给 row-scope 预算用 — 不暴露给 renderer 直接调,只用来 batch 计算。
+ *
+ * dataBar 不参与(整行高亮里没有 bar 的位置语义)— 调用方过滤。
+ */
+function evaluateSingleRule(
+  rule: ConditionalFormatRule,
+  cellValue: number,
+  cutoffs: CutoffsByRuleId,
+): CellFormatStyle {
+  if (rule.kind === 'threshold') {
+    for (const cond of rule.conditions) {
+      if (matchesCondition(cond, cellValue)) return { ...cond.style };
+    }
+    return {};
+  }
+  if (rule.kind === 'topN' || rule.kind === 'bottomN') {
+    const cut = cutoffs.get(rule.id);
+    if (!cut) return {};
+    const hit = rule.kind === 'topN' ? cellValue >= cut.cutoff : cellValue <= cut.cutoff;
+    return hit ? { ...rule.style } : {};
+  }
+  return {};
+}
+
+/**
+ * 预算 row-scope 规则命中的 styles — Map<rowIdx, CellFormatStyle>
+ *
+ * 跨 row × scope='row' rule 矩阵扫一遍,命中第一条即记录 row 的 style,跳出。
+ * O(rows × rowRules) — 一般 rules < 10,跑一次不显著。
+ *
+ * 不感知数据形态(pivot/adhoc):caller 注入 `cellValueAt(r, measure)` callback。
+ *
+ * @param rules 当前 mode 已过滤的 rules(可能含 scope=cell 的,这里再过一遍 scope=row)
+ * @param rowCount 表格行数
+ * @param cellValueAt 给定行 r + measure 名,返回 raw 数值 或 null(空 / 非数值)
+ * @param cutoffs computeTopBottomCutoffs 的结果(给 topN/bottomN rule 用)
+ */
+export function computeRowScopeStyles(
+  rules: ConditionalFormatRule[],
+  rowCount: number,
+  cellValueAt: (rowIdx: number, measure: string) => number | null,
+  cutoffs: CutoffsByRuleId,
+): ReadonlyMap<number, CellFormatStyle> {
+  const out = new Map<number, CellFormatStyle>();
+  // dataBar 没有 row scope,getRuleScope 把它强归 'cell',这里自然过滤掉
+  const rowRules = rules.filter((r) => getRuleScope(r) === 'row');
+  if (rowRules.length === 0) return out;
+
+  for (let r = 0; r < rowCount; r++) {
+    for (const rule of rowRules) {
+      const v = cellValueAt(r, rule.measure);
+      if (v === null || !Number.isFinite(v)) continue;
+      const style = evaluateSingleRule(rule, v, cutoffs);
+      if (style.bg || style.fg || style.bold) {
+        out.set(r, style); // 同 row 多 rule 命中 → 第一条 wins(数组顺序)
+        break;
+      }
+    }
+  }
+  return out;
 }

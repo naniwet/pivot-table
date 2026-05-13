@@ -16,16 +16,50 @@
 import { useState, type CSSProperties, type ReactNode } from 'react';
 
 import type {
+  ConditionalFormatMode,
   ConditionalFormatRule,
+  ConditionalFormatScope,
   ConditionalFormatThresholdCondition,
 } from '../../types/viewConfig.js';
 
+/** 可复用的 scope 下拉(threshold + topN/bottomN 共用) */
+function ScopeSelect({
+  scope,
+  onChange,
+  testIdPrefix,
+}: {
+  scope: ConditionalFormatScope;
+  onChange: (next: ConditionalFormatScope) => void;
+  testIdPrefix: string;
+}): ReactNode {
+  return (
+    <>
+      <span className="cond-fmt-cond-row__label">应用</span>
+      <select
+        className="cond-fmt-cond-row__op"
+        data-testid={`${testIdPrefix}-scope`}
+        value={scope}
+        onChange={(e) => onChange(e.target.value as ConditionalFormatScope)}
+        title="cell=仅命中单元格;row=命中行整行高亮"
+      >
+        <option value="cell">单元格</option>
+        <option value="row">整行</option>
+      </select>
+    </>
+  );
+}
+
 export interface ConditionalFormatModalProps {
-  /** 该 modal 编辑的 measure name(显示用) */
+  /** 该 modal 编辑的 measure name(透视)或 fieldName(明细) */
   measure: string;
   /** measure 的展示别名(中文,UI 标题) */
   measureAlias?: string;
-  /** 当前 viewConfig 里该 measure 的所有 rule(threshold + dataBar 各 N 条) */
+  /**
+   * P5+ 模式:'pivot' 编辑透视规则,'adhoc' 编辑明细规则。
+   * 新增 rule 时打 mode 标签,父组件按 mode 过滤显示。缺省 'pivot' 保持兼容。
+   */
+  mode?: ConditionalFormatMode;
+  /** 当前 viewConfig 里该 measure 的所有 rule(已按 mode 过滤好,modal 内不再二次过滤) */
   rules: ConditionalFormatRule[];
   /** 用户点确定后,把最终 rules 一次性回传(增/改/删 diff 由父组件算) */
   onApply: (rules: ConditionalFormatRule[]) => void;
@@ -45,6 +79,9 @@ const OP_LABELS: Record<ConditionalFormatThresholdCondition['op'], string> = {
 
 const DEFAULT_THRESHOLD_BG = '#fee2e2'; // 浅红
 const DEFAULT_DATABAR_COLOR = '#3b82f6'; // 蓝
+const DEFAULT_TOPN_BG = '#fde68a'; // 浅金(top)
+const DEFAULT_BOTTOMN_BG = '#fecaca'; // 浅红(bottom)
+const DEFAULT_TOP_BOTTOM_N = 3;
 
 function genRuleId(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
@@ -53,6 +90,7 @@ function genRuleId(prefix: string): string {
 export function ConditionalFormatModal({
   measure,
   measureAlias,
+  mode = 'pivot',
   rules,
   onApply,
   onClose,
@@ -77,6 +115,7 @@ export function ConditionalFormatModal({
       ...prev,
       {
         id: genRuleId('th'),
+        mode,
         measure,
         kind: 'threshold',
         conditions: [{ op: 'gt', value: 0, style: { bg: DEFAULT_THRESHOLD_BG } }],
@@ -88,10 +127,37 @@ export function ConditionalFormatModal({
       ...prev,
       {
         id: genRuleId('db'),
+        mode,
         measure,
         kind: 'dataBar',
         color: DEFAULT_DATABAR_COLOR,
         range: 'auto',
+      },
+    ]);
+  };
+  const addTopN = () => {
+    setDraft((prev) => [
+      ...prev,
+      {
+        id: genRuleId('tn'),
+        mode,
+        measure,
+        kind: 'topN',
+        n: DEFAULT_TOP_BOTTOM_N,
+        style: { bg: DEFAULT_TOPN_BG },
+      },
+    ]);
+  };
+  const addBottomN = () => {
+    setDraft((prev) => [
+      ...prev,
+      {
+        id: genRuleId('bn'),
+        mode,
+        measure,
+        kind: 'bottomN',
+        n: DEFAULT_TOP_BOTTOM_N,
+        style: { bg: DEFAULT_BOTTOMN_BG },
       },
     ]);
   };
@@ -131,23 +197,37 @@ export function ConditionalFormatModal({
               还没有规则。点下方按钮添加。
             </div>
           )}
-          {draft.map((rule, idx) =>
-            rule.kind === 'threshold' ? (
-              <ThresholdRuleEditor
+          {draft.map((rule, idx) => {
+            if (rule.kind === 'threshold') {
+              return (
+                <ThresholdRuleEditor
+                  key={rule.id}
+                  rule={rule}
+                  onChange={(next) => updateRule(idx, next)}
+                  onRemove={() => removeRule(idx)}
+                />
+              );
+            }
+            if (rule.kind === 'dataBar') {
+              return (
+                <DataBarRuleEditor
+                  key={rule.id}
+                  rule={rule}
+                  onChange={(next) => updateRule(idx, next)}
+                  onRemove={() => removeRule(idx)}
+                />
+              );
+            }
+            // topN / bottomN
+            return (
+              <TopBottomNRuleEditor
                 key={rule.id}
                 rule={rule}
                 onChange={(next) => updateRule(idx, next)}
                 onRemove={() => removeRule(idx)}
               />
-            ) : (
-              <DataBarRuleEditor
-                key={rule.id}
-                rule={rule}
-                onChange={(next) => updateRule(idx, next)}
-                onRemove={() => removeRule(idx)}
-              />
-            ),
-          )}
+            );
+          })}
         </div>
 
         <div className="cond-fmt-modal__add-row">
@@ -166,6 +246,22 @@ export function ConditionalFormatModal({
             onClick={addDataBar}
           >
             + 数据条
+          </button>
+          <button
+            type="button"
+            className="cond-fmt-modal__add-btn"
+            data-testid="cond-fmt-add-topn"
+            onClick={addTopN}
+          >
+            + Top N
+          </button>
+          <button
+            type="button"
+            className="cond-fmt-modal__add-btn"
+            data-testid="cond-fmt-add-bottomn"
+            onClick={addBottomN}
+          >
+            + Bottom N
           </button>
         </div>
 
@@ -237,6 +333,14 @@ function ThresholdRuleEditor({
         </button>
       </div>
       <div className="cond-fmt-rule__hint">多条件按从上到下顺序匹配,第一条命中即生效</div>
+      {/* P5+ scope 选择器 — 整行 vs 仅 cell;放在 rule 级别(同 rule 内多条件共用 scope) */}
+      <div className="cond-fmt-cond-row">
+        <ScopeSelect
+          scope={rule.scope ?? 'cell'}
+          onChange={(scope) => onChange({ ...rule, scope })}
+          testIdPrefix={`rule-${rule.id}`}
+        />
+      </div>
       {rule.conditions.map((c, i) => (
         <ConditionRow
           key={i}
@@ -442,6 +546,87 @@ function DataBarRuleEditor({
             />
           </>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// TopN / BottomN rule 编辑器(单 N + 颜色 + 粗体)
+// 范围 = 当前页 — UI 用 hint 提示用户跨页排名会变
+// ============================================================
+function TopBottomNRuleEditor({
+  rule,
+  onChange,
+  onRemove,
+}: {
+  rule: Extract<ConditionalFormatRule, { kind: 'topN' | 'bottomN' }>;
+  onChange: (next: Extract<ConditionalFormatRule, { kind: 'topN' | 'bottomN' }>) => void;
+  onRemove: () => void;
+}): ReactNode {
+  const label = rule.kind === 'topN' ? 'Top N' : 'Bottom N';
+  const defaultBg = rule.kind === 'topN' ? DEFAULT_TOPN_BG : DEFAULT_BOTTOMN_BG;
+  return (
+    <div
+      className={`cond-fmt-rule cond-fmt-rule--${rule.kind}`}
+      data-testid={`rule-${rule.id}`}
+    >
+      <div className="cond-fmt-rule__head">
+        <span className="cond-fmt-rule__kind">{label}</span>
+        <button
+          type="button"
+          className="cond-fmt-rule__remove"
+          data-testid={`rule-remove-${rule.id}`}
+          aria-label="删除规则"
+          onClick={onRemove}
+        >
+          ×
+        </button>
+      </div>
+      <div className="cond-fmt-rule__hint">
+        排名范围 = 当前页(跟"数据条"一致),换页时排名会重算
+      </div>
+      <div className="cond-fmt-cond-row">
+        <span className="cond-fmt-cond-row__label">N</span>
+        <input
+          type="number"
+          min={1}
+          step={1}
+          className="cond-fmt-cond-row__value"
+          data-testid={`topbottom-n-${rule.id}`}
+          value={rule.n}
+          onChange={(e) => {
+            const n = Math.max(1, Math.floor(Number(e.target.value) || 1));
+            onChange({ ...rule, n });
+          }}
+        />
+        <span className="cond-fmt-cond-row__label">背景</span>
+        <input
+          type="color"
+          className="cond-fmt-cond-row__color"
+          data-testid={`topbottom-color-${rule.id}`}
+          title="背景色"
+          value={rule.style.bg ?? defaultBg}
+          onChange={(e) =>
+            onChange({ ...rule, style: { ...rule.style, bg: e.target.value } })
+          }
+        />
+        <label className="cond-fmt-cond-row__bold" title="加粗">
+          <input
+            type="checkbox"
+            data-testid={`topbottom-bold-${rule.id}`}
+            checked={!!rule.style.bold}
+            onChange={(e) =>
+              onChange({ ...rule, style: { ...rule.style, bold: e.target.checked } })
+            }
+          />
+          粗体
+        </label>
+        <ScopeSelect
+          scope={rule.scope ?? 'cell'}
+          onChange={(scope) => onChange({ ...rule, scope })}
+          testIdPrefix={`rule-${rule.id}`}
+        />
       </div>
     </div>
   );

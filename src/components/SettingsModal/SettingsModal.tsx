@@ -129,6 +129,72 @@ export function SettingsModal({
             </label>
           ))}
 
+          {/*
+           * P5+ 全表总计 / 小计位置 — 跟 chip 菜单的"显示合计/小计"语义不同:
+           *   - chip 菜单"合计/小计"= 某 dim field 的 per-field subtotal
+           *     (后端 fields[N].DimensionField.subTotal='SHOW')
+           *   - 这里的"全表总计"= 跨所有维度的总汇总行/列
+           *     (后端 pageSettings.showGrandTotal)
+           *   - 这里的"小计位置"= 控制小计行在每组的位置(开头 / 末尾)
+           *     (后端 pageSettings.subTotalAtEnd)
+           * adhoc 无合计概念 → buildAdhocQuery 强制 false,这里 disable
+           */}
+          <label
+            className="settings-modal__row"
+            data-testid="settings-showGrandTotal"
+            data-disabled={isAdhoc ? 'true' : undefined}
+            title={isAdhoc ? '即席查询(明细)模式下不生效' : '在表末显示跨全部维度的总汇总行/列'}
+          >
+            <input
+              type="checkbox"
+              checked={viewConfig.pageState.showGrandTotal !== false}
+              disabled={isAdhoc}
+              onChange={(e) =>
+                dispatch({ type: 'SET_TOTALS', showGrandTotal: e.target.checked })
+              }
+            />
+            <span>显示全表总计(行末 + 列末各一行/一列汇总)</span>
+          </label>
+
+          <div
+            className="settings-modal__row settings-modal__row--input"
+            data-testid="settings-subTotalAtEnd"
+            data-disabled={isAdhoc ? 'true' : undefined}
+            title={isAdhoc ? '即席查询(明细)模式下不生效' : '小计行在每组的位置'}
+          >
+            <span>小计位置</span>
+            <div className="settings-modal__btn-group" role="radiogroup">
+              <button
+                type="button"
+                role="radio"
+                aria-checked={viewConfig.pageState.subTotalAtEnd !== false}
+                className="settings-modal__mode-btn"
+                data-active={
+                  viewConfig.pageState.subTotalAtEnd !== false ? 'true' : 'false'
+                }
+                data-testid="settings-subTotalAtEnd-end"
+                disabled={isAdhoc}
+                onClick={() => dispatch({ type: 'SET_TOTALS', subTotalAtEnd: true })}
+              >
+                每组末尾
+              </button>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={viewConfig.pageState.subTotalAtEnd === false}
+                className="settings-modal__mode-btn"
+                data-active={
+                  viewConfig.pageState.subTotalAtEnd === false ? 'true' : 'false'
+                }
+                data-testid="settings-subTotalAtEnd-start"
+                disabled={isAdhoc}
+                onClick={() => dispatch({ type: 'SET_TOTALS', subTotalAtEnd: false })}
+              >
+                每组开头
+              </button>
+            </div>
+          </div>
+
           {/* P3+ 空值显示文本 — 下拉预设 + 自定义输入 */}
           <div
             className="settings-modal__row settings-modal__row--input"

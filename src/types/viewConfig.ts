@@ -155,13 +155,18 @@ export interface PageState {
    */
   asyncColumnHeader?: boolean;
   /**
-   * P3: 显示总合计行(query.pageSettings.showGrandTotal)。默认 true。
-   * UI:Toolbar "显示总计" 开关 / chip 右键菜单 "显示小计/总计" 项
+   * P3: 全表总计开关(query.pageSettings.showGrandTotal)。默认 true。
+   *
+   * 语义:跨**所有**维度做汇总,后端在表末额外返回 1 行(行轴)+ 1 列(列轴)合计。
+   * 跟 chip 菜单"合计/小计"无关 — 后者是 per-field subTotal(field-level)。
+   * UI 入口:**SettingsModal**(P5+ 起统一在设置面板,chip 菜单不暴露此项)。
    */
   showGrandTotal?: boolean;
   /**
-   * P3: 小计排在末尾还是开头(query.pageSettings.subTotalAtEnd)。默认 true。
-   * 注意:此字段控制位置,**显示开关在 RowField.subTotal**(per-field DimensionField)
+   * P3: 小计行位置(query.pageSettings.subTotalAtEnd)。默认 true(每组末尾)。
+   *
+   * 注意:这是**位置**开关,不是显示开关。是否显示某 dim 的小计 → RowField.subTotal。
+   * UI 入口:SettingsModal。
    */
   subTotalAtEnd?: boolean;
   /**
@@ -265,20 +270,46 @@ export interface ConditionalFormatThresholdCondition {
  * 条件格式化规则(union by kind)。
  *
  * 设计:
- *   - measure 字段绑定一个 measureName(metadata 度量)或 customField id;
- *     实际匹配时跟 cellSet 列的 measureName 比对。
+ *   - measure 字段绑定:
+ *       - pivot 模式 → measureName(metadata 度量)或 customField id
+ *       - adhoc 模式 → metadata.fields[].name(物理字段名;仅数值类 valueType 适合)
+ *     evaluator 内部只做字符串匹配,不区分。同一字符串在两种模式语义不同 — 用 mode 隔离。
+ *   - mode 字段(P5+ 引入)用于在 pivot/adhoc 视图间隔离规则:
+ *       - 'pivot' / undefined(向后兼容旧序列化默认)→ 仅在透视模式生效
+ *       - 'adhoc' → 仅在即席模式生效
+ *     渲染前 renderer 按 mode 过滤,evaluator 不感知 mode。
  *   - threshold 多条件按数组顺序,第一个命中的 style 生效(类似 CSS first-match)。
  *   - dataBar 跟 threshold 不冲突 — 同 measure 可同时挂 dataBar(画 bar)+ threshold(着色)。
+ *   - topN/bottomN 高亮当前页内该 measure 前/后 N 名 cell:
+ *       范围 = 当前页(跟 dataBar range='auto' 一致,跨页不一致 — README 已说明);
+ *       样式 = 单色(统一,不做渐变);
+ *       并列名次:严格按 N 截断(>= 第 N 名 value 即入选,可能多于 N 行);
+ *       跟 threshold 同时挂时:threshold 先匹配,没命中再看 topN/bottomN。
  */
+export type ConditionalFormatMode = 'pivot' | 'adhoc';
+
+/**
+ * 作用范围:
+ *   - 'cell'(默认,向后兼容旧 rule 数据)— 只装饰 trigger 列那一个 cell
+ *   - 'row' — 命中条件 → 整行所有 cell 都套样式(含行表头)
+ * dataBar 没有 scope — bar 是 cell 内部的进度条,无"整行"语义
+ */
+export type ConditionalFormatScope = 'cell' | 'row';
+
 export type ConditionalFormatRule =
   | {
       id: string;
+      /** P5+:作用模式;undefined 视为 'pivot'(向后兼容旧 rule 数据) */
+      mode?: ConditionalFormatMode;
+      /** P5+:作用范围;undefined 视为 'cell'(向后兼容旧 rule 数据) */
+      scope?: ConditionalFormatScope;
       measure: string;
       kind: 'threshold';
       conditions: ConditionalFormatThresholdCondition[];
     }
   | {
       id: string;
+      mode?: ConditionalFormatMode;
       measure: string;
       kind: 'dataBar';
       /** bar 颜色,CSS color */
@@ -289,7 +320,33 @@ export type ConditionalFormatRule =
        *   - { min, max }:固定值(用于跨查询保持视觉一致,如百分比 [0,1])
        */
       range: 'auto' | { min: number; max: number };
+    }
+  | {
+      id: string;
+      mode?: ConditionalFormatMode;
+      scope?: ConditionalFormatScope;
+      measure: string;
+      kind: 'topN' | 'bottomN';
+      /** 取前/后 N 名;N>=1,UI 默认 3 */
+      n: number;
+      /** 命中后样式(同 threshold 的 style)— 至少给一个 bg/fg/bold,否则视觉无效 */
+      style: {
+        bg?: string;
+        fg?: string;
+        bold?: boolean;
+      };
     };
+
+/**
+ * 按当前 mode 过滤 rules — 渲染层用。
+ * rule.mode === undefined 视为 'pivot'(向后兼容旧序列化)。
+ */
+export function filterConditionalFormatsByMode(
+  rules: ConditionalFormatRule[],
+  mode: ConditionalFormatMode,
+): ConditionalFormatRule[] {
+  return rules.filter((r) => (r.mode ?? 'pivot') === mode);
+}
 
 // ===== 用户自建字段（P2 引入；P0 必须支持空数组序列化） =====
 

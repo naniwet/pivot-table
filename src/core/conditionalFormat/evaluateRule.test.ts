@@ -5,9 +5,13 @@ import { describe, expect, it } from 'vitest';
 
 import type { ConditionalFormatRule } from '../../types/viewConfig.js';
 
+import type { CutoffsByRuleId } from './computeTopBottomCutoffs.js';
 import {
+  computeRowScopeStyles,
   evaluateDataBar,
   evaluateThreshold,
+  evaluateTopBottom,
+  getRuleScope,
   hasRulesFor,
   matchesCondition,
 } from './evaluateRule.js';
@@ -177,6 +181,110 @@ describe('evaluateDataBar', () => {
   });
 });
 
+describe('evaluateTopBottom', () => {
+  const sales = 'sales';
+  const cost = 'cost';
+  const GOLD = '#facc15';
+  const RED = '#ef4444';
+  const topSalesRule: ConditionalFormatRule = {
+    id: 't1',
+    measure: sales,
+    kind: 'topN',
+    n: 3,
+    style: { bg: GOLD },
+  };
+  const bottomSalesRule: ConditionalFormatRule = {
+    id: 'b1',
+    measure: sales,
+    kind: 'bottomN',
+    n: 2,
+    style: { bg: RED },
+  };
+  const cutoffs: CutoffsByRuleId = new Map([
+    ['t1', { kind: 'topN', cutoff: 30 }], // top-3 cutoff
+    ['b1', { kind: 'bottomN', cutoff: 20 }], // bottom-2 cutoff
+  ]);
+
+  it('measure 不匹配 → 空 style', () => {
+    expect(evaluateTopBottom([topSalesRule], cost, 100, cutoffs)).toEqual({});
+  });
+
+  it('topN: cellValue >= cutoff → 命中(并列也命中)', () => {
+    expect(evaluateTopBottom([topSalesRule], sales, 50, cutoffs)).toEqual({ bg: GOLD });
+    expect(evaluateTopBottom([topSalesRule], sales, 30, cutoffs)).toEqual({ bg: GOLD }); // 并列
+    expect(evaluateTopBottom([topSalesRule], sales, 29, cutoffs)).toEqual({});
+  });
+
+  it('bottomN: cellValue <= cutoff → 命中(并列也命中)', () => {
+    expect(evaluateTopBottom([bottomSalesRule], sales, 10, cutoffs)).toEqual({ bg: RED });
+    expect(evaluateTopBottom([bottomSalesRule], sales, 20, cutoffs)).toEqual({ bg: RED }); // 并列
+    expect(evaluateTopBottom([bottomSalesRule], sales, 21, cutoffs)).toEqual({});
+  });
+
+  it('cutoff 没出现在 Map(列全空)→ 跳过该 rule', () => {
+    const emptyCutoffs: CutoffsByRuleId = new Map();
+    expect(evaluateTopBottom([topSalesRule], sales, 50, emptyCutoffs)).toEqual({});
+  });
+
+  it('threshold / dataBar rule 不参与 topBottom 评估', () => {
+    const t: ConditionalFormatRule = {
+      id: 'x',
+      measure: sales,
+      kind: 'threshold',
+      conditions: [{ op: 'gt', value: 0, style: { bg: 'pink' } }],
+    };
+    const db: ConditionalFormatRule = {
+      id: 'd',
+      measure: sales,
+      kind: 'dataBar',
+      color: 'blue',
+      range: 'auto',
+    };
+    expect(evaluateTopBottom([t, db], sales, 100, cutoffs)).toEqual({});
+  });
+
+  it('多 topN/bottomN rule 同 measure → 按数组顺序第一条命中即返回', () => {
+    // 用户配 top-1(gold) + top-3(green);value=50 同时落在两个范围,top-1 优先
+    const top1: ConditionalFormatRule = {
+      id: 't1',
+      measure: sales,
+      kind: 'topN',
+      n: 1,
+      style: { bg: 'gold' },
+    };
+    const top3: ConditionalFormatRule = {
+      id: 't3',
+      measure: sales,
+      kind: 'topN',
+      n: 3,
+      style: { bg: 'green' },
+    };
+    const cuts: CutoffsByRuleId = new Map([
+      ['t1', { kind: 'topN', cutoff: 50 }], // 仅 50 入选
+      ['t3', { kind: 'topN', cutoff: 30 }], // 30/40/50 入选
+    ]);
+    // 50 → 命中 top1
+    expect(evaluateTopBottom([top1, top3], sales, 50, cuts)).toEqual({ bg: 'gold' });
+    // 40 → top1 miss(40<50),top3 hit(40>=30)
+    expect(evaluateTopBottom([top1, top3], sales, 40, cuts)).toEqual({ bg: 'green' });
+    // 20 → 都 miss
+    expect(evaluateTopBottom([top1, top3], sales, 20, cuts)).toEqual({});
+  });
+
+  it('topN + bottomN 共存,顺序决定优先级', () => {
+    const cuts: CutoffsByRuleId = new Map([
+      ['t1', { kind: 'topN', cutoff: 30 }],
+      ['b1', { kind: 'bottomN', cutoff: 20 }],
+    ]);
+    // 25 在中间区,都不命中
+    expect(evaluateTopBottom([topSalesRule, bottomSalesRule], sales, 25, cuts)).toEqual({});
+    // 100 命中 topN(在 bottomN 之前)
+    expect(evaluateTopBottom([topSalesRule, bottomSalesRule], sales, 100, cuts)).toEqual({ bg: GOLD });
+    // 5 命中 bottomN
+    expect(evaluateTopBottom([topSalesRule, bottomSalesRule], sales, 5, cuts)).toEqual({ bg: RED });
+  });
+});
+
 describe('hasRulesFor', () => {
   it('measure 有规则 → true', () => {
     const r: ConditionalFormatRule = {
@@ -196,5 +304,141 @@ describe('hasRulesFor', () => {
       conditions: [{ op: 'gt', value: 0, style: {} }],
     };
     expect(hasRulesFor([r], 'sales')).toBe(false);
+  });
+});
+
+describe('getRuleScope', () => {
+  it('threshold 默认 cell', () => {
+    expect(
+      getRuleScope({
+        id: 'r', measure: 'sales', kind: 'threshold',
+        conditions: [{ op: 'gt', value: 0, style: {} }],
+      }),
+    ).toBe('cell');
+  });
+
+  it('threshold scope=row 取 row', () => {
+    expect(
+      getRuleScope({
+        id: 'r', scope: 'row', measure: 'sales', kind: 'threshold',
+        conditions: [{ op: 'gt', value: 0, style: {} }],
+      }),
+    ).toBe('row');
+  });
+
+  it('topN scope=row 取 row', () => {
+    expect(
+      getRuleScope({
+        id: 't', scope: 'row', measure: 'sales', kind: 'topN', n: 3, style: { bg: 'red' },
+      }),
+    ).toBe('row');
+  });
+
+  it('dataBar 没 scope 字段 → 强归 cell', () => {
+    expect(
+      getRuleScope({
+        id: 'd', measure: 'sales', kind: 'dataBar', color: 'blue', range: 'auto',
+      }),
+    ).toBe('cell');
+  });
+});
+
+describe('computeRowScopeStyles', () => {
+  const RED = '#ef4444';
+  const YELLOW = '#fde047';
+
+  it('没 row-scope 规则 → 空 Map', () => {
+    const rules: ConditionalFormatRule[] = [
+      {
+        id: 'r1', measure: 'sales', kind: 'threshold',
+        conditions: [{ op: 'gt', value: 100, style: { bg: RED } }],
+      },
+    ];
+    const valueAt = () => 200;
+    expect(computeRowScopeStyles(rules, 5, valueAt, new Map()).size).toBe(0);
+  });
+
+  it('row-scope threshold 命中 → 该 row 入 Map', () => {
+    const rules: ConditionalFormatRule[] = [
+      {
+        id: 'r1', scope: 'row', measure: 'sales', kind: 'threshold',
+        conditions: [{ op: 'gt', value: 100, style: { bg: RED } }],
+      },
+    ];
+    // row 0 = 50(不命中), row 1 = 200(命中), row 2 = 150(命中)
+    const valueAt = (r: number, _m: string) => [50, 200, 150][r] ?? null;
+    const out = computeRowScopeStyles(rules, 3, valueAt, new Map());
+    expect(out.size).toBe(2);
+    expect(out.get(0)).toBeUndefined();
+    expect(out.get(1)).toEqual({ bg: RED });
+    expect(out.get(2)).toEqual({ bg: RED });
+  });
+
+  it('row-scope topN 命中 → 该 row 入 Map', () => {
+    const rules: ConditionalFormatRule[] = [
+      {
+        id: 't1', scope: 'row', measure: 'sales', kind: 'topN', n: 2,
+        style: { bg: YELLOW },
+      },
+    ];
+    const cutoffs: CutoffsByRuleId = new Map([['t1', { kind: 'topN', cutoff: 100 }]]);
+    // row 0 = 200(>=100), row 1 = 50(<100), row 2 = 100(>=100)
+    const valueAt = (r: number) => [200, 50, 100][r] ?? null;
+    const out = computeRowScopeStyles(rules, 3, valueAt, cutoffs);
+    expect(out.get(0)).toEqual({ bg: YELLOW });
+    expect(out.get(1)).toBeUndefined();
+    expect(out.get(2)).toEqual({ bg: YELLOW });
+  });
+
+  it('多 row-scope rule 同 row 命中 → 第一条 wins', () => {
+    const rules: ConditionalFormatRule[] = [
+      {
+        id: 'r1', scope: 'row', measure: 'sales', kind: 'threshold',
+        conditions: [{ op: 'gt', value: 100, style: { bg: RED } }],
+      },
+      {
+        id: 'r2', scope: 'row', measure: 'sales', kind: 'threshold',
+        conditions: [{ op: 'gt', value: 50, style: { bg: YELLOW } }],
+      },
+    ];
+    const valueAt = () => 200;
+    const out = computeRowScopeStyles(rules, 1, valueAt, new Map());
+    expect(out.get(0)).toEqual({ bg: RED });
+  });
+
+  it('dataBar(无 scope)即使数组里也不参与 row-scope', () => {
+    const rules: ConditionalFormatRule[] = [
+      {
+        id: 'd', measure: 'sales', kind: 'dataBar', color: 'blue', range: 'auto',
+      },
+    ];
+    const valueAt = () => 999;
+    expect(computeRowScopeStyles(rules, 3, valueAt, new Map()).size).toBe(0);
+  });
+
+  it('cellValueAt 返回 null → 跳过该 row', () => {
+    const rules: ConditionalFormatRule[] = [
+      {
+        id: 'r1', scope: 'row', measure: 'sales', kind: 'threshold',
+        conditions: [{ op: 'gt', value: 0, style: { bg: RED } }],
+      },
+    ];
+    const valueAt = () => null;
+    expect(computeRowScopeStyles(rules, 5, valueAt, new Map()).size).toBe(0);
+  });
+
+  it('cell-scope rule(scope=cell 或 undefined)不进 row-scope 结果', () => {
+    const rules: ConditionalFormatRule[] = [
+      {
+        id: 'c1', measure: 'sales', kind: 'threshold', // scope 缺省=cell
+        conditions: [{ op: 'gt', value: 0, style: { bg: RED } }],
+      },
+      {
+        id: 'c2', scope: 'cell', measure: 'sales', kind: 'threshold',
+        conditions: [{ op: 'gt', value: 0, style: { bg: YELLOW } }],
+      },
+    ];
+    const valueAt = () => 100;
+    expect(computeRowScopeStyles(rules, 3, valueAt, new Map()).size).toBe(0);
   });
 });

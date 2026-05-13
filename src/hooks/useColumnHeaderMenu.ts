@@ -20,6 +20,7 @@ import { useMemo } from 'react';
 import type { Dispatch } from 'react';
 
 import type { ContextMenuItem } from '../components/ContextMenu/ContextMenu.js';
+import { isNumericValueType } from '../core/metadata/fieldDisplayType.js';
 import type { MetadataIndex } from '../core/metadata/fieldIndex.js';
 import type { ViewConfig } from '../types/viewConfig.js';
 import type { ViewConfigAction } from './useViewConfig.js';
@@ -37,10 +38,19 @@ export interface UseColumnHeaderMenuOptions {
   viewConfig: ViewConfig;
   metaIndex: MetadataIndex;
   dispatch: Dispatch<ViewConfigAction>;
+  /**
+   * P5+ 明细数值列开放"条件格式化…":
+   *   - 仅 adhoc 模式 + valueType 是数值类(INT/BIGINT/FLOAT/DOUBLE/DECIMAL...)时菜单项出现
+   *   - 字符串/日期/布尔列 — 不渲染该项(阈值/排名语义不适用)
+   * 传了 callback 才显示,父组件用 callback 打开 ConditionalFormatModal(mode='adhoc')。
+   */
+  onOpenConditionalFormat?: (fieldName: string) => void;
 }
 
+/* 数值类 valueType 判定下沉到 core/metadata/fieldDisplayType.isNumericValueType */
+
 export function useColumnHeaderMenu(opts: UseColumnHeaderMenuOptions): ContextMenuItem[] {
-  const { columnHeaderMenu, viewConfig, metaIndex, dispatch } = opts;
+  const { columnHeaderMenu, viewConfig, metaIndex, dispatch, onOpenConditionalFormat } = opts;
 
   return useMemo<ContextMenuItem[]>(() => {
     if (!columnHeaderMenu) return [];
@@ -74,7 +84,17 @@ export function useColumnHeaderMenu(opts: UseColumnHeaderMenuOptions): ContextMe
       dispatch({ type: 'SET', viewConfig: { ...viewConfig, rowSorts: next } });
     };
 
-    const alias = metaIndex.findByName(fieldName)?.alias ?? fieldName;
+    const field = metaIndex.findByName(fieldName);
+    const alias = field?.alias ?? fieldName;
+    // P5+ adhoc 数值列才出 "条件格式化…":
+    //   - 必须显式传 callback(pivot/transition 不需要这入口 — 走 chip 菜单)
+    //   - 必须 sortKind='ByDimension'(adhoc 列头 / pivot corner)— pivot 度量列头本身就是 ByMeasure
+    //     而那走 chip 菜单的条件格式化路径,不在这里
+    //   - 必须 valueType 是数值类
+    const showCondFmt =
+      !!onOpenConditionalFormat &&
+      sortKind === 'ByDimension' &&
+      isNumericValueType(field?.valueType ?? null);
 
     return [
       {
@@ -93,6 +113,16 @@ export function useColumnHeaderMenu(opts: UseColumnHeaderMenuOptions): ContextMe
               key: 'sort-clear',
               label: '取消排序',
               onClick: () => setSortDirection(null),
+            },
+          ]
+        : []),
+      ...(showCondFmt
+        ? [
+            { key: 'sep-cond', separator: true as const },
+            {
+              key: 'cond-fmt',
+              label: '条件格式化…',
+              onClick: () => onOpenConditionalFormat?.(fieldName),
             },
           ]
         : []),

@@ -447,3 +447,54 @@ describe('DropZones — chip 排序状态箭头 (P2)', () => {
     expect(arrow).toHaveTextContent('↑组');
   });
 });
+
+describe('DropZones — P5+ 数据类型 icon badge', () => {
+  it('数值字段 chip → data-type=numeric(CSS ::before 渲染 #)', () => {
+    const vc = buildViewConfig({
+      rows: [{ fieldName: FIELD_IDS.salesMeasure, type: 'Dimension' }],
+    });
+    render(
+      <DropZones
+        viewConfig={vc}
+        metadata={orderModelMetadata}
+        onDrop={vi.fn()}
+        onRemove={vi.fn()}
+      />,
+    );
+    const badge = screen.getByTestId(`tag-type-${FIELD_IDS.salesMeasure}`);
+    expect(badge.getAttribute('data-type')).toBe('numeric');
+    expect(badge.getAttribute('title')).toContain('数值');
+  });
+
+  it('字符串字段 chip → data-type=text(CSS ::before 渲染 Aa)', () => {
+    const vc = buildViewConfig({
+      rows: [{ fieldName: FIELD_IDS.provinceLevel, type: 'Dimension' }],
+    });
+    render(
+      <DropZones
+        viewConfig={vc}
+        metadata={orderModelMetadata}
+        onDrop={vi.fn()}
+        onRemove={vi.fn()}
+      />,
+    );
+    const badge = screen.getByTestId(`tag-type-${FIELD_IDS.provinceLevel}`);
+    expect(badge.getAttribute('data-type')).toBe('text');
+    expect(badge.getAttribute('title')).toContain('文本');
+  });
+
+  it('Σ 度量名称 sentinel chip → 不渲染 badge', () => {
+    const vc = buildViewConfig({
+      values: [buildValueField({ measureName: FIELD_IDS.salesMeasure })],
+    });
+    render(
+      <DropZones
+        viewConfig={vc}
+        metadata={orderModelMetadata}
+        onDrop={vi.fn()}
+        onRemove={vi.fn()}
+      />,
+    );
+    expect(screen.queryByTestId('tag-type-__measure_axis__')).toBeNull();
+  });
+});
