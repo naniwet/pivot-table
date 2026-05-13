@@ -496,3 +496,241 @@ describe('useViewConfig — 条件格式化(ADD/UPDATE/REMOVE_CONDITIONAL_FORMAT
     expect(result.current[0]).toBe(before);
   });
 });
+
+// ============================================================
+// P5+ history (undo / redo)
+// ============================================================
+describe('useViewConfig — history (P5+)', () => {
+  it('初始 canUndo=false, canRedo=false', () => {
+    const { result } = renderHook(() => useViewConfig({ defaultValue: buildViewConfig() }));
+    expect(result.current[2].canUndo).toBe(false);
+    expect(result.current[2].canRedo).toBe(false);
+  });
+
+  it('dispatch 一次显著 action → canUndo=true', () => {
+    const initial = buildViewConfig({
+      values: [buildValueField({ measureName: MEASURE })],
+    });
+    const { result } = renderHook(() =>
+      useViewConfig({ defaultValue: initial, metadata: orderModelMetadata }),
+    );
+    act(() =>
+      result.current[1]({ type: 'REMOVE_FIELD', zone: 'value', fieldName: MEASURE }),
+    );
+    expect(result.current[2].canUndo).toBe(true);
+    expect(result.current[2].canRedo).toBe(false);
+  });
+
+  it('undo → 恢复到上一步,canRedo=true', () => {
+    const initial = buildViewConfig({
+      values: [buildValueField({ measureName: MEASURE })],
+    });
+    const { result } = renderHook(() =>
+      useViewConfig({ defaultValue: initial, metadata: orderModelMetadata }),
+    );
+    act(() =>
+      result.current[1]({ type: 'REMOVE_FIELD', zone: 'value', fieldName: MEASURE }),
+    );
+    expect(result.current[0].values).toEqual([]);
+
+    act(() => result.current[2].undo());
+    expect(result.current[0].values).toHaveLength(1);
+    expect(result.current[2].canRedo).toBe(true);
+    expect(result.current[2].canUndo).toBe(false);
+  });
+
+  it('redo → 恢复到 undo 之前', () => {
+    const initial = buildViewConfig({
+      values: [buildValueField({ measureName: MEASURE })],
+    });
+    const { result } = renderHook(() =>
+      useViewConfig({ defaultValue: initial, metadata: orderModelMetadata }),
+    );
+    act(() =>
+      result.current[1]({ type: 'REMOVE_FIELD', zone: 'value', fieldName: MEASURE }),
+    );
+    act(() => result.current[2].undo());
+    expect(result.current[0].values).toHaveLength(1);
+
+    act(() => result.current[2].redo());
+    expect(result.current[0].values).toEqual([]);
+    expect(result.current[2].canUndo).toBe(true);
+    expect(result.current[2].canRedo).toBe(false);
+  });
+
+  it('undo 后 dispatch 新 action → future 清空(经典编辑器行为)', () => {
+    const initial = buildViewConfig({
+      values: [buildValueField({ measureName: MEASURE })],
+    });
+    const { result } = renderHook(() =>
+      useViewConfig({ defaultValue: initial, metadata: orderModelMetadata }),
+    );
+    act(() =>
+      result.current[1]({ type: 'REMOVE_FIELD', zone: 'value', fieldName: MEASURE }),
+    );
+    act(() => result.current[2].undo());
+    expect(result.current[2].canRedo).toBe(true);
+
+    // 新 dispatch → future 应清空
+    act(() =>
+      result.current[1]({
+        type: 'SET_DISPLAY_OPTIONS',
+        emptyValueText: '-',
+      }),
+    );
+    expect(result.current[2].canRedo).toBe(false);
+    expect(result.current[2].canUndo).toBe(true);
+  });
+
+  it('SET_ROW_PAGE 不入 history(翻页是浏览,不算 step)', () => {
+    const { result } = renderHook(() =>
+      useViewConfig({ defaultValue: buildViewConfig(), metadata: orderModelMetadata }),
+    );
+    expect(result.current[2].canUndo).toBe(false);
+    act(() => result.current[1]({ type: 'SET_ROW_PAGE', pageNo: 2 }));
+    expect(result.current[2].canUndo).toBe(false); // 仍然 false
+    expect(result.current[0].pageState.rowPageNo).toBe(2); // 但翻页生效
+  });
+
+  it('no-op action(reducer 返回同引用)不入 history', () => {
+    const initial = buildViewConfig({
+      values: [buildValueField({ measureName: MEASURE })],
+    });
+    const { result } = renderHook(() =>
+      useViewConfig({ defaultValue: initial, metadata: orderModelMetadata }),
+    );
+    // REMOVE_CONDITIONAL_FORMAT 不存在的 id → reducer 早退返回同 state
+    act(() =>
+      result.current[1]({ type: 'REMOVE_CONDITIONAL_FORMAT', id: 'nope' }),
+    );
+    expect(result.current[2].canUndo).toBe(false);
+  });
+
+  it('canUndo=false 时调 undo() → no-op', () => {
+    const { result } = renderHook(() => useViewConfig({ defaultValue: buildViewConfig() }));
+    const before = result.current[0];
+    act(() => result.current[2].undo());
+    expect(result.current[0]).toBe(before);
+  });
+
+  it('canRedo=false 时调 redo() → no-op', () => {
+    const initial = buildViewConfig({
+      values: [buildValueField({ measureName: MEASURE })],
+    });
+    const { result } = renderHook(() =>
+      useViewConfig({ defaultValue: initial, metadata: orderModelMetadata }),
+    );
+    act(() =>
+      result.current[1]({ type: 'REMOVE_FIELD', zone: 'value', fieldName: MEASURE }),
+    );
+    const before = result.current[0];
+    act(() => result.current[2].redo()); // future 空
+    expect(result.current[0]).toBe(before);
+  });
+
+  it('clearHistory() → past + future 都清空', () => {
+    const initial = buildViewConfig({
+      values: [buildValueField({ measureName: MEASURE })],
+    });
+    const { result } = renderHook(() =>
+      useViewConfig({ defaultValue: initial, metadata: orderModelMetadata }),
+    );
+    act(() =>
+      result.current[1]({ type: 'REMOVE_FIELD', zone: 'value', fieldName: MEASURE }),
+    );
+    act(() => result.current[2].undo()); // 现在 past=[], future=[has 1]
+    expect(result.current[2].canRedo).toBe(true);
+
+    act(() => result.current[2].clearHistory());
+    expect(result.current[2].canUndo).toBe(false);
+    expect(result.current[2].canRedo).toBe(false);
+  });
+
+  it('past 上限截断(连续 dispatch 多步,只保留最近 50)', () => {
+    const { result } = renderHook(() =>
+      useViewConfig({ defaultValue: buildViewConfig(), metadata: orderModelMetadata }),
+    );
+    // 55 次 dispatch(每次都改 emptyValueText 不同串)
+    for (let i = 0; i < 55; i++) {
+      act(() =>
+        result.current[1]({
+          type: 'SET_DISPLAY_OPTIONS',
+          emptyValueText: `v${i}`,
+        }),
+      );
+    }
+    // canUndo 仍 true,但只能 undo 50 次
+    expect(result.current[2].canUndo).toBe(true);
+    for (let i = 0; i < 50; i++) {
+      act(() => result.current[2].undo());
+    }
+    expect(result.current[2].canUndo).toBe(false); // 50 次 undo 后到底
+    // emptyValueText 应该是 v4(第 5 次 dispatch — 前 5 次因上限被丢)
+    // 实际:past 保留最近 50 步,所以从 v54 undo 50 次到 v4
+    expect(result.current[0].pageState.emptyValueText).toBe('v4');
+  });
+
+  it('metadata.id 变化 → 自动清空 history', () => {
+    const initial = buildViewConfig({
+      values: [buildValueField({ measureName: MEASURE })],
+    });
+    const { result, rerender } = renderHook(
+      ({ md }: { md: typeof orderModelMetadata }) =>
+        useViewConfig({ defaultValue: initial, metadata: md }),
+      { initialProps: { md: orderModelMetadata } },
+    );
+    act(() =>
+      result.current[1]({ type: 'REMOVE_FIELD', zone: 'value', fieldName: MEASURE }),
+    );
+    expect(result.current[2].canUndo).toBe(true);
+
+    // 切到新 metadata(改 id)
+    const newMd = { ...orderModelMetadata, id: 'other-model-id' };
+    rerender({ md: newMd });
+    expect(result.current[2].canUndo).toBe(false);
+    expect(result.current[2].canRedo).toBe(false);
+  });
+
+  it('同 metadata.id 同实例再传 → 不清空 history', () => {
+    const initial = buildViewConfig({
+      values: [buildValueField({ measureName: MEASURE })],
+    });
+    const { result, rerender } = renderHook(
+      ({ md }: { md: typeof orderModelMetadata }) =>
+        useViewConfig({ defaultValue: initial, metadata: md }),
+      { initialProps: { md: orderModelMetadata } },
+    );
+    act(() =>
+      result.current[1]({ type: 'REMOVE_FIELD', zone: 'value', fieldName: MEASURE }),
+    );
+    expect(result.current[2].canUndo).toBe(true);
+
+    // 同 id 不同对象引用 → 不清空
+    rerender({ md: { ...orderModelMetadata } });
+    expect(result.current[2].canUndo).toBe(true);
+  });
+
+  it('undo / redo 在受控模式 — 调 onChange 传 prev/next', () => {
+    const onChange = vi.fn();
+    const initial = buildViewConfig({
+      values: [buildValueField({ measureName: MEASURE })],
+    });
+    const { result, rerender } = renderHook(
+      ({ value }: { value: ReturnType<typeof buildViewConfig> }) =>
+        useViewConfig({ value, onChange, metadata: orderModelMetadata }),
+      { initialProps: { value: initial } },
+    );
+    act(() =>
+      result.current[1]({ type: 'REMOVE_FIELD', zone: 'value', fieldName: MEASURE }),
+    );
+    expect(onChange).toHaveBeenCalledTimes(1);
+    // 父组件应该用 onChange 给的新 value 更新外部 state
+    const afterRemove = onChange.mock.calls[0]![0];
+    rerender({ value: afterRemove });
+
+    act(() => result.current[2].undo());
+    expect(onChange).toHaveBeenCalledTimes(2);
+    // undo 应该调 onChange 传回原 initial 值
+    expect(onChange.mock.calls[1]![0].values).toHaveLength(1);
+  });
+});

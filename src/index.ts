@@ -170,6 +170,7 @@ export {
   viewConfigReducer,
   type UseViewConfigOptions,
   type ViewConfigAction,
+  type ViewConfigHistory,
 } from './hooks/useViewConfig.js';
 export {
   usePivotQuery,

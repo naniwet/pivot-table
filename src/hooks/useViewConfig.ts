@@ -12,7 +12,7 @@
  *   - 不做时间旅行 / undo（按需在 P3+ 引入）
  */
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Dispatch } from 'react';
 
 import type { DropZone, FieldType } from '../core/dropRules/dropRules.js';
@@ -415,9 +415,41 @@ export interface UseViewConfigOptions {
   metadata?: Metadata;
 }
 
+/**
+ * P5+ 撤销/重做 API — useViewConfig 第 3 个返回值
+ *
+ * 设计:state snapshot 风格(每次显著编辑前把当前 viewConfig 整体入栈)。
+ *   - 内存代价小(viewConfig ~几 KB × 50 = ~250KB)
+ *   - 任何 viewConfig 变更都能撤销
+ *   - reducer 保持纯,history 仅在 hook 内 wrap
+ *
+ * 黑名单:翻页(SET_ROW_PAGE)不入栈 — 跟编辑意图无关,Excel/Tableau 一致语义
+ * 数据源切换(metadata.id 变化)→ 自动 clearHistory
+ */
+export interface ViewConfigHistory {
+  canUndo: boolean;
+  canRedo: boolean;
+  undo: () => void;
+  redo: () => void;
+  /** 手动清空 history(数据源切换会自动调,宿主一般不需要主动用) */
+  clearHistory: () => void;
+}
+
+/** history 上限 — 50 步对 BI 场景足够;超出 shift 最老的 */
+const MAX_HISTORY = 50;
+
+/**
+ * 不入 history 的 action 类型(action.type 黑名单):
+ *   - SET_ROW_PAGE:翻页是"浏览"不是"编辑",跟 Excel/Tableau 一致
+ * 其他所有 action 都入栈(包括 SET — 整体替换也算一步)
+ */
+const NON_HISTORY_ACTIONS: ReadonlySet<ViewConfigAction['type']> = new Set([
+  'SET_ROW_PAGE',
+]);
+
 export function useViewConfig(
   options: UseViewConfigOptions,
-): readonly [ViewConfig, Dispatch<ViewConfigAction>] {
+): readonly [ViewConfig, Dispatch<ViewConfigAction>, ViewConfigHistory] {
   const { value, defaultValue, onChange, metadata } = options;
 
   // 模式在首次渲染时锁定（基于 value 是否曾经定义）
@@ -427,20 +459,87 @@ export function useViewConfig(
     () => defaultValue ?? buildViewConfig(),
   );
 
+  // P5+ 历史栈:past(undo 拉这个)+ future(redo 拉这个)
+  // 不存 current — current 始终是 viewConfig(controlled 走 value,uncontrolled 走 internalState)
+  const [history, setHistory] = useState<{ past: ViewConfig[]; future: ViewConfig[] }>(
+    () => ({ past: [], future: [] }),
+  );
+
   const dispatch = useCallback<Dispatch<ViewConfigAction>>(
     (action) => {
       const currentSource = isControlledRef.current ? (value ?? internalState) : internalState;
       const next = viewConfigReducer(currentSource, action, metadata);
+      // reducer 返回同引用 → 无变化,不触发 onChange / history
+      // (现有 reducer 中部分分支已显式 return state 早退)
+      if (next === currentSource) return;
       onChange?.(next);
       if (!isControlledRef.current) {
         setInternalState(next);
+      }
+      // 入 history(黑名单除外);任何"新"编辑都清空 redo 栈(经典编辑器行为)
+      if (!NON_HISTORY_ACTIONS.has(action.type)) {
+        setHistory((h) => ({
+          past: [...h.past, currentSource].slice(-MAX_HISTORY),
+          future: [],
+        }));
       }
     },
     [value, internalState, onChange, metadata],
   );
 
-  // 受控时返回 value（用 internalState 兜底，理论上不该走到）
+  // 受控时返回 value(用 internalState 兜底,理论上不该走到)
   const currentState = isControlledRef.current ? (value ?? internalState) : internalState;
 
-  return [currentState, dispatch] as const;
+  const undo = useCallback(() => {
+    if (history.past.length === 0) return;
+    const prev = history.past[history.past.length - 1]!;
+    const currentSource = isControlledRef.current ? (value ?? internalState) : internalState;
+    onChange?.(prev);
+    if (!isControlledRef.current) {
+      setInternalState(prev);
+    }
+    setHistory({
+      past: history.past.slice(0, -1),
+      future: [currentSource, ...history.future].slice(0, MAX_HISTORY),
+    });
+  }, [history, value, internalState, onChange]);
+
+  const redo = useCallback(() => {
+    if (history.future.length === 0) return;
+    const next = history.future[0]!;
+    const currentSource = isControlledRef.current ? (value ?? internalState) : internalState;
+    onChange?.(next);
+    if (!isControlledRef.current) {
+      setInternalState(next);
+    }
+    setHistory({
+      past: [...history.past, currentSource].slice(-MAX_HISTORY),
+      future: history.future.slice(1),
+    });
+  }, [history, value, internalState, onChange]);
+
+  const clearHistory = useCallback(() => {
+    setHistory({ past: [], future: [] });
+  }, []);
+
+  // 数据源切换(metadata.id 变化)→ 自动清空 history
+  // 跨数据源的老 history 字段名不通用,撤销没意义
+  const prevMetadataIdRef = useRef<string | undefined>(metadata?.id);
+  useEffect(() => {
+    const nextId = metadata?.id;
+    if (prevMetadataIdRef.current !== undefined && prevMetadataIdRef.current !== nextId) {
+      setHistory({ past: [], future: [] });
+    }
+    prevMetadataIdRef.current = nextId;
+  }, [metadata?.id]);
+
+  const historyApi: ViewConfigHistory = {
+    canUndo: history.past.length > 0,
+    canRedo: history.future.length > 0,
+    undo,
+    redo,
+    clearHistory,
+  };
+
+  return [currentState, dispatch, historyApi] as const;
 }

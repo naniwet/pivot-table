@@ -59,6 +59,14 @@ export interface ToolbarProps {
    */
   queryMode?: 'pivot' | 'adhoc';
   onToggleQueryMode?: () => void;
+  /**
+   * P5+ 撤销 / 重做(传 onUndo/onRedo 才渲染按钮;canUndo/canRedo 决定 disabled)
+   * 跟 useViewConfig 第 3 返回值 ViewConfigHistory 对接
+   */
+  canUndo?: boolean;
+  canRedo?: boolean;
+  onUndo?: () => void;
+  onRedo?: () => void;
   className?: string;
   style?: CSSProperties;
 }
@@ -96,6 +104,20 @@ const ICON_EYE = (
     <circle cx="8" cy="8" r="2" />
   </svg>
 );
+/** ↶ 撤销 — 圆弧加左尾(回退视觉)*/
+const ICON_UNDO = (
+  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <path d="M3 7h7a3 3 0 0 1 0 6H6" />
+    <path d="M6 4 3 7l3 3" />
+  </svg>
+);
+/** ↷ 重做 — 镜像 undo */
+const ICON_REDO = (
+  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <path d="M13 7H6a3 3 0 0 0 0 6h4" />
+    <path d="M10 4l3 3-3 3" />
+  </svg>
+);
 
 export function Toolbar({
   leadingSlot,
@@ -113,6 +135,10 @@ export function Toolbar({
   onChangeChartType,
   queryMode = 'pivot',
   onToggleQueryMode,
+  canUndo = false,
+  canRedo = false,
+  onUndo,
+  onRedo,
   className,
   style,
 }: ToolbarProps): ReactNode {
@@ -143,6 +169,39 @@ export function Toolbar({
           {ICON_REFRESH}
           <span>刷新</span>
         </button>
+        {/* P5+ 撤销 / 重做 — 仅当宿主传了 onUndo/onRedo 才渲染(default-off)
+         *   icon-only(节省横向空间);disabled 状态由 canUndo/canRedo 控制
+         *   快捷键 Cmd/Ctrl+Z / Cmd/Ctrl+Shift+Z 在 PivotTable 文档级监听 */}
+        {onUndo && (
+          <button
+            type="button"
+            data-testid="toolbar-undo"
+            className="toolbar-btn toolbar-btn--icon-only"
+            disabled={!canUndo}
+            title={canUndo ? '撤销 (Cmd/Ctrl+Z)' : '没有可撤销的操作'}
+            aria-label="撤销"
+            onClick={() => {
+              if (canUndo) onUndo();
+            }}
+          >
+            {ICON_UNDO}
+          </button>
+        )}
+        {onRedo && (
+          <button
+            type="button"
+            data-testid="toolbar-redo"
+            className="toolbar-btn toolbar-btn--icon-only"
+            disabled={!canRedo}
+            title={canRedo ? '重做 (Cmd/Ctrl+Shift+Z)' : '没有可重做的操作'}
+            aria-label="重做"
+            onClick={() => {
+              if (canRedo) onRedo();
+            }}
+          >
+            {ICON_REDO}
+          </button>
+        )}
         {/* P5+ 查询模式切换 — segmented control:同时显示两个选项,激活态高亮
          *   原单按钮"明细/透视"label = 目的地,容易误读"我在明细模式";segmented 直接看出"我在哪"
          */}

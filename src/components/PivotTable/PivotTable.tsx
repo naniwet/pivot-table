@@ -191,7 +191,7 @@ function PivotTableInner({
   className,
   style,
 }: PivotTableProps): ReactNode {
-  const [viewConfig, dispatch] = useViewConfig({ value, defaultValue, onChange, metadata });
+  const [viewConfig, dispatch, history] = useViewConfig({ value, defaultValue, onChange, metadata });
   const metaIndex = useMemo(() => buildMetadataIndex(metadata), [metadata]);
 
   // 行表头 corner 显示的字段 alias(给 PivotRenderer / TreeRenderer 用)
@@ -370,6 +370,39 @@ function PivotTableInner({
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
   }, [browseMode]);
+
+  // P5+ 撤销 / 重做 快捷键 — Cmd/Ctrl+Z = undo, Cmd/Ctrl+Shift+Z (或 Cmd/Ctrl+Y) = redo
+  // input / textarea / contentEditable 聚焦时不拦截,让浏览器原生 undo 工作
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey)) return;
+      if (e.key !== 'z' && e.key !== 'Z' && e.key !== 'y' && e.key !== 'Y') return;
+      // 在编辑控件里 → 走浏览器原生(input/textarea undo stack)
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName;
+      if (
+        tag === 'INPUT' ||
+        tag === 'TEXTAREA' ||
+        tag === 'SELECT' ||
+        target?.isContentEditable
+      ) {
+        return;
+      }
+      // Cmd/Ctrl+Shift+Z 或 Cmd/Ctrl+Y → redo
+      const isRedo =
+        (e.shiftKey && (e.key === 'z' || e.key === 'Z')) ||
+        e.key === 'y' ||
+        e.key === 'Y';
+      e.preventDefault();
+      if (isRedo) {
+        if (history.canRedo) history.redo();
+      } else {
+        if (history.canUndo) history.undo();
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [history]);
 
   // P3+ 明细 modal:点 toolbar "📋 明细" / 单元格右键"查看明细"(宿主未传 onDrillThrough 时)
   // null = 关闭;非 null = 打开,持有该次明细查询 + 上下文 chip(给用户看"我在看哪个切片")
@@ -828,6 +861,10 @@ function PivotTableInner({
               mode: viewConfig.queryMode === 'adhoc' ? 'pivot' : 'adhoc',
             })
           }
+          canUndo={history.canUndo}
+          canRedo={history.canRedo}
+          onUndo={history.undo}
+          onRedo={history.redo}
         />
       </div>
       )}
