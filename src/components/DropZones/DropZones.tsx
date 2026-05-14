@@ -39,7 +39,38 @@ import {
 } from '../../core/metadata/fieldDisplayType.js';
 import type { Metadata } from '../../types/metadata.js';
 import type { QuickCalculation } from '../../types/query.js';
-import type { ViewConfig } from '../../types/viewConfig.js';
+import type {
+  ClientFilter,
+  ClientMeasureFilter,
+  ViewConfig,
+} from '../../types/viewConfig.js';
+
+/**
+ * 递归收集 filter 树中所有 leaf 的 fieldName(group / nested AND-OR 都展开)。
+ * 给 filter zone 渲染 chip 用 — UI 上每个 fieldName 1 个 chip(去重)。
+ */
+function collectFilterLeafFields(filter: ClientFilter): string[] {
+  if (filter.kind === 'leaf') return [filter.field];
+  return filter.children.flatMap(collectFilterLeafFields);
+}
+
+/** 度量过滤树同上 — leaf.measureName 收集 */
+function collectMeasureLeafFields(mf: ClientMeasureFilter): string[] {
+  if ('kind' in mf && mf.kind === 'group') {
+    return mf.children.flatMap(collectMeasureLeafFields);
+  }
+  return [mf.measureName];
+}
+
+/** 去重保序 */
+function dedupe<T>(arr: T[]): T[] {
+  const seen = new Set<T>();
+  return arr.filter((x) => {
+    if (seen.has(x)) return false;
+    seen.add(x);
+    return true;
+  });
+}
 
 export interface DropZonesProps {
   viewConfig: ViewConfig;
@@ -440,39 +471,40 @@ export function DropZones({
   const viewMode = computeViewMode(viewConfig);
   const isAdhocMode = viewMode.isAdhoc;
 
-  // P1.0:filter zone 渲染 ClientFilter 维度 leaf + MeasureFilter 度量
+  // P1.0 / P5+:filter zone 渲染所有 fieldName 涉及的 chip(递归扫 AND/OR group 树)
+  // 维度过滤 + 度量过滤分别去重 — 同 fieldName 在多个 group / leaf 出现也只 1 个 chip
+  // 删除 × → removeFieldFromZone 已递归裁所有相关 leaf(group 空了自动清),不用改 reducer
+  const dimensionFilterFields = dedupe(
+    viewConfig.filters.flatMap(collectFilterLeafFields),
+  );
+  const measureFilterFields = dedupe(
+    viewConfig.measureFilters.flatMap(collectMeasureLeafFields),
+  );
   const filterFields: FieldTag[] = [
-    ...viewConfig.filters
-      .filter((f) => f.kind === 'leaf')
-      .map((f): FieldTag => {
-        const fName = (f as { field: string }).field;
-        return {
-          name: fName,
-          dragFieldName: fName,
-          alias: aliasOf(fName),
-          // 维度 filter 默认 'Dimension'(实际 type 不影响拖到 row/column,dropRules 一致)
-          fieldType: 'Dimension' as FieldType,
-          displayType: displayTypeOf(fName),
-        };
+    ...dimensionFilterFields.map(
+      (fName): FieldTag => ({
+        name: fName,
+        dragFieldName: fName,
+        alias: aliasOf(fName),
+        // 维度 filter 默认 'Dimension'(实际 type 不影响拖到 row/column,dropRules 一致)
+        fieldType: 'Dimension' as FieldType,
+        displayType: displayTypeOf(fName),
       }),
-    // 度量过滤:仅 leaf 节点显示在 DropZones 的 filter 区(group 在 FilterPanel 上方有专门 chip)
-    ...viewConfig.measureFilters
-      .filter(
-        (mf): mf is Extract<typeof mf, { measureName: string }> =>
-          !('kind' in mf) || mf.kind === 'leaf' || mf.kind === undefined,
-      )
-      .map((mf): FieldTag => ({
-        name: mf.measureName,
-        dragFieldName: mf.measureName,
-        alias: aliasOf(mf.measureName),
+    ),
+    ...measureFilterFields.map(
+      (mName): FieldTag => ({
+        name: mName,
+        dragFieldName: mName,
+        alias: aliasOf(mName),
         fieldType: 'Measure' as FieldType,
-        displayType: displayTypeOf(mf.measureName),
+        displayType: displayTypeOf(mName),
         // adhoc 模式下度量过滤不生效 → 灰显
         disabled: isAdhocMode,
         disabledReason: isAdhocMode
           ? '即席查询(明细)模式不支持度量过滤;切回透视模式生效'
           : undefined,
-      })),
+      }),
+    ),
   ];
 
   // 给所有 chip 附上当前排序方向

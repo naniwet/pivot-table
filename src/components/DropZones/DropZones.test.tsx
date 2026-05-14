@@ -498,3 +498,92 @@ describe('DropZones — P5+ 数据类型 icon badge', () => {
     expect(screen.queryByTestId('tag-type-__measure_axis__')).toBeNull();
   });
 });
+
+describe('DropZones — filter zone 递归展开 group (P5+)', () => {
+  // 用户场景:OR 包裹两个 year leaf → 之前只渲染顶层 leaf,group 整个被漏 → 筛选区空
+  it('viewConfig.filters 是顶层 group → 递归到 leaf 渲染 chip(group 不再被漏)', () => {
+    const vc = buildViewConfig({
+      filters: [
+        {
+          kind: 'group',
+          op: 'Or',
+          children: [
+            { kind: 'leaf', field: FIELD_IDS.provinceLevel, operator: 'In', value: ['江苏'] },
+            { kind: 'leaf', field: FIELD_IDS.provinceLevel, operator: 'In', value: ['浙江'] },
+          ],
+        },
+      ],
+    });
+    render(
+      <DropZones
+        viewConfig={vc}
+        metadata={orderModelMetadata}
+        onDrop={vi.fn()}
+        onRemove={vi.fn()}
+      />,
+    );
+    const filterZone = screen.getByTestId('zone-filter');
+    // 同 field 多 leaf 去重 → 只 1 个 chip
+    const chips = within(filterZone).getAllByText('省份');
+    expect(chips).toHaveLength(1);
+  });
+
+  it('多 field 嵌套 group → 各 fieldName 各 1 chip(去重保序)', () => {
+    const vc = buildViewConfig({
+      filters: [
+        {
+          kind: 'group',
+          op: 'And',
+          children: [
+            { kind: 'leaf', field: FIELD_IDS.provinceLevel, operator: 'In', value: ['江苏'] },
+            {
+              kind: 'group',
+              op: 'Or',
+              children: [
+                { kind: 'leaf', field: FIELD_IDS.regionLevel, operator: 'In', value: ['苏南'] },
+                { kind: 'leaf', field: FIELD_IDS.regionLevel, operator: 'In', value: ['苏北'] },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+    render(
+      <DropZones
+        viewConfig={vc}
+        metadata={orderModelMetadata}
+        onDrop={vi.fn()}
+        onRemove={vi.fn()}
+      />,
+    );
+    const filterZone = screen.getByTestId('zone-filter');
+    expect(within(filterZone).getAllByText('省份')).toHaveLength(1);
+    expect(within(filterZone).getAllByText('区域')).toHaveLength(1);
+  });
+
+  it('删除 × 调 onRemove 传 fieldName(reducer 已递归裁 group 内 leaf)', () => {
+    const onRemove = vi.fn();
+    const vc = buildViewConfig({
+      filters: [
+        {
+          kind: 'group',
+          op: 'Or',
+          children: [
+            { kind: 'leaf', field: FIELD_IDS.provinceLevel, operator: 'In', value: ['江苏'] },
+            { kind: 'leaf', field: FIELD_IDS.provinceLevel, operator: 'In', value: ['浙江'] },
+          ],
+        },
+      ],
+    });
+    render(
+      <DropZones
+        viewConfig={vc}
+        metadata={orderModelMetadata}
+        onDrop={vi.fn()}
+        onRemove={onRemove}
+      />,
+    );
+    fireEvent.click(screen.getByTestId(`remove-filter-${FIELD_IDS.provinceLevel}`));
+    expect(onRemove).toHaveBeenCalledWith('filter', FIELD_IDS.provinceLevel);
+  });
+});
