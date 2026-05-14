@@ -300,3 +300,71 @@ describe('ConditionalFormatModal — cancel / close', () => {
     expect(onApply).not.toHaveBeenCalled();
   });
 });
+
+describe('ConditionalFormatModal — scope 选择(P5+)', () => {
+  it('新建 threshold rule 默认 scope=undefined(渲染时按 cell)', async () => {
+    const onApply = vi.fn();
+    render(
+      <ConditionalFormatModal
+        measure={sales}
+        rules={[]}
+        onApply={onApply}
+        onClose={vi.fn()}
+      />,
+    );
+    await userEvent.setup().click(screen.getByTestId('cond-fmt-add-threshold'));
+    await userEvent.setup().click(screen.getByTestId('cond-fmt-apply'));
+    const out = onApply.mock.calls[0]![0] as ConditionalFormatRule[];
+    expect(out[0]!.kind).toBe('threshold');
+    // scope 缺省 — getRuleScope 会兜底 'cell'
+    if (out[0]!.kind === 'threshold') {
+      expect(out[0]!.scope).toBeUndefined();
+    }
+  });
+
+  it('改 threshold scope → 整行 → apply 后 rule.scope=row', async () => {
+    const onApply = vi.fn();
+    render(
+      <ConditionalFormatModal
+        measure={sales}
+        rules={[]}
+        onApply={onApply}
+        onClose={vi.fn()}
+      />,
+    );
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId('cond-fmt-add-threshold'));
+    // 找到 scope select(用 rule 自动 id,定位 rule-{id}-scope)
+    const scopeSelect = screen.getByRole('combobox', { name: /应用|cell/i }) as HTMLSelectElement
+      ?? screen.getAllByTestId(/-scope$/)[0] as HTMLSelectElement;
+    await user.selectOptions(scopeSelect, 'row');
+    await user.click(screen.getByTestId('cond-fmt-apply'));
+    const out = onApply.mock.calls[0]![0] as ConditionalFormatRule[];
+    expect(out[0]!.kind).toBe('threshold');
+    if (out[0]!.kind === 'threshold') {
+      expect(out[0]!.scope).toBe('row');
+    }
+  });
+
+  it('改 topN scope → 整行 → apply 后 rule.scope=row', async () => {
+    const onApply = vi.fn();
+    render(
+      <ConditionalFormatModal
+        measure={sales}
+        rules={[]}
+        onApply={onApply}
+        onClose={vi.fn()}
+      />,
+    );
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId('cond-fmt-add-topn'));
+    const scopeSelect = screen.getAllByTestId(/-scope$/)[0] as HTMLSelectElement;
+    await user.selectOptions(scopeSelect, 'row');
+    await user.click(screen.getByTestId('cond-fmt-apply'));
+    const out = onApply.mock.calls[0]![0] as ConditionalFormatRule[];
+    expect(out[0]!.kind).toBe('topN');
+    if (out[0]!.kind === 'topN') {
+      expect(out[0]!.scope).toBe('row');
+    }
+  });
+});

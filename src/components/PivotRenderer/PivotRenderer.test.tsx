@@ -966,3 +966,146 @@ describe('PivotRenderer — corner 行字段 alias', () => {
     expect(screen.queryByTestId('pivot-corner-0')).not.toBeInTheDocument();
   });
 });
+
+// ============================================================
+// P5+ 条件格式化 — row-scope 应用整行
+// ============================================================
+describe('PivotRenderer — 条件格式化 row-scope(整行高亮)', () => {
+  function modelWith2Rows() {
+    return makeRenderModel({
+      columnHeader: [measureColHeader],
+      rowHeader: [makeFlatRow('江苏'), makeFlatRow('浙江')],
+      matrix: [
+        [{ value: 2000000, formattedValue: '2,000,000', isEmpty: false, isMasked: false }],
+        [{ value: 500, formattedValue: '500', isEmpty: false, isMasked: false }],
+      ],
+      columnMeta: [measureColMeta],
+      pagination: { totalRowCount: 2 },
+    });
+  }
+
+  it('scope=row threshold 命中 → 整行 td 套样式', () => {
+    const vc = buildViewConfig({
+      ...baseViewConfig,
+      pageState: {
+        ...baseViewConfig.pageState,
+        conditionalFormats: [
+          {
+            id: 'r1',
+            mode: 'pivot',
+            scope: 'row',
+            measure: MEASURE,
+            kind: 'threshold',
+            conditions: [{ op: 'gt', value: 1000000, style: { bg: 'rgb(255, 0, 0)' } }],
+          },
+        ],
+      },
+    });
+    render(
+      <PivotRenderer
+        renderModel={modelWith2Rows()}
+        viewConfig={vc}
+        onSortClick={vi.fn()}
+        onDrillDown={vi.fn()}
+        onDrillUp={vi.fn()}
+      />,
+    );
+    // row 0 = 2,000,000 > 1M → 命中,应用样式
+    const r0c0 = screen.getByTestId('cell-r0-c0');
+    expect(r0c0).toHaveStyle({ backgroundColor: 'rgb(255, 0, 0)' });
+    // row 1 = 500 < 1M → 不命中
+    const r1c0 = screen.getByTestId('cell-r1-c0');
+    expect(r1c0).not.toHaveStyle({ backgroundColor: 'rgb(255, 0, 0)' });
+  });
+
+  it('row-scope 多列 multi-measure 场景 — 该行所有列(包括非 trigger 列)都套样式', () => {
+    // 模拟用户场景:cols=[产品子类×Σ度量],4 个数据列 = 2 产品 × 2 measure
+    const otherMeasure = '销售成本_xxx';
+    const otherMeasureMeta = { ...measureColMeta, name: otherMeasure, alias: '销售成本' };
+    const vc = buildViewConfig({
+      ...baseViewConfig,
+      values: [
+        buildValueField({ measureName: MEASURE }),
+        buildValueField({ measureName: otherMeasure }),
+      ],
+      pageState: {
+        ...baseViewConfig.pageState,
+        conditionalFormats: [
+          {
+            id: 'r1',
+            mode: 'pivot',
+            scope: 'row',
+            measure: MEASURE,
+            kind: 'threshold',
+            conditions: [{ op: 'gt', value: 1000000, style: { bg: 'rgb(255, 0, 0)' } }],
+          },
+        ],
+      },
+    });
+    // 多列 columnHeader,4 列:冰柜.销售额 / 冰柜.销售成本 / 冰箱.销售额 / 冰箱.销售成本
+    const model = makeRenderModel({
+      columnHeader: [
+        { fieldName: MEASURE, alias: '销售额', dataFormat: 'fmt', isMeasure: true },
+        { fieldName: otherMeasure, alias: '销售成本', dataFormat: 'fmt', isMeasure: true },
+        { fieldName: MEASURE, alias: '销售额', dataFormat: 'fmt', isMeasure: true },
+        { fieldName: otherMeasure, alias: '销售成本', dataFormat: 'fmt', isMeasure: true },
+      ],
+      rowHeader: [makeFlatRow('江苏')],
+      matrix: [
+        [
+          { value: 2500000, formattedValue: '2,500,000', isEmpty: false, isMasked: false },
+          { value: 800000, formattedValue: '800,000', isEmpty: false, isMasked: false },
+          { value: 1500000, formattedValue: '1,500,000', isEmpty: false, isMasked: false },
+          { value: 500000, formattedValue: '500,000', isEmpty: false, isMasked: false },
+        ],
+      ],
+      columnMeta: [measureColMeta, otherMeasureMeta, measureColMeta, otherMeasureMeta],
+      pagination: { totalRowCount: 1 },
+    });
+    render(
+      <PivotRenderer
+        renderModel={model}
+        viewConfig={vc}
+        onSortClick={vi.fn()}
+        onDrillDown={vi.fn()}
+        onDrillUp={vi.fn()}
+      />,
+    );
+    // 销售额(c=0)= 2500000 > 1M → row 0 命中 → 所有 4 列都应该红
+    for (let c = 0; c < 4; c++) {
+      expect(screen.getByTestId(`cell-r0-c${c}`)).toHaveStyle({
+        backgroundColor: 'rgb(255, 0, 0)',
+      });
+    }
+  });
+
+  it('对比:scope=cell(默认)threshold 同条件 → row 0 命中(对照确认 cell-scope 行为)', () => {
+    const vc = buildViewConfig({
+      ...baseViewConfig,
+      pageState: {
+        ...baseViewConfig.pageState,
+        conditionalFormats: [
+          {
+            id: 'c1',
+            mode: 'pivot',
+            // scope undefined → 默认 cell
+            measure: MEASURE,
+            kind: 'threshold',
+            conditions: [{ op: 'gt', value: 1000000, style: { bg: 'rgb(0, 255, 0)' } }],
+          },
+        ],
+      },
+    });
+    render(
+      <PivotRenderer
+        renderModel={modelWith2Rows()}
+        viewConfig={vc}
+        onSortClick={vi.fn()}
+        onDrillDown={vi.fn()}
+        onDrillUp={vi.fn()}
+      />,
+    );
+    const r0c0 = screen.getByTestId('cell-r0-c0');
+    expect(r0c0).toHaveStyle({ backgroundColor: 'rgb(0, 255, 0)' });
+  });
+});
