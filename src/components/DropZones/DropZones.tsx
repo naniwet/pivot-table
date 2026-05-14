@@ -20,6 +20,11 @@ import {
   PIVOT_FIELD_MIME,
 } from '../../core/dropRules/dragProtocol.js';
 import { canDrop, type DropZone, type FieldType } from '../../core/dropRules/dropRules.js';
+import {
+  findDuplicateColumnIndices,
+  findDuplicateRowIndices,
+  findDuplicateValueIndices,
+} from '../../core/viewConfig/findDuplicates.js';
 import { buildMetadataIndex } from '../../core/metadata/fieldIndex.js';
 import { computeViewMode } from '../../core/viewMode/viewMode.js';
 import { getAggregatorLabel } from '../../core/viewConfig/aggregators.js';
@@ -157,6 +162,14 @@ interface FieldTag {
    * 注:disabled 不影响交互(还能 × 删 / 右键菜单),只影响视觉。
    */
   disabled?: boolean;
+  /**
+   * P5+ 重复 chip 标记 — 用户拖了多个完全相同的 chip(同 fieldName / 同三元组)。
+   * 拖拽不 dedup(无打断),但渲染层标红边框 + ⚠ icon,buildQuery 翻译前 first-wins dedup。
+   * 用户改 chip 的 agg/qc 让 key 不再撞 → 自动清除(动态响应)。
+   */
+  duplicate?: boolean;
+  /** duplicate 时悬停 tooltip 文本(描述如何去重) */
+  duplicateReason?: string;
   /** disabled 时悬停 tooltip 文本 */
   disabledReason?: string;
 }
@@ -287,8 +300,15 @@ function ZoneView({
               data-field-tag={f.name}
               data-sort-direction={f.sortDirection ?? undefined}
               data-disabled={f.disabled ? 'true' : undefined}
+              data-duplicate={f.duplicate ? 'true' : undefined}
               draggable
-              title={f.disabled && f.disabledReason ? f.disabledReason : '右键打开菜单(排序 / 移动 / 快速计算 / 删除)'}
+              title={
+                f.duplicate && f.duplicateReason
+                  ? f.duplicateReason
+                  : f.disabled && f.disabledReason
+                    ? f.disabledReason
+                    : '右键打开菜单(排序 / 移动 / 快速计算 / 删除)'
+              }
               onDragStart={(e) => {
                 try {
                   // 跨 zone 拖动:fieldName 用 dragFieldName(value zone 是 base measureName,其他 zone 同 name)
@@ -333,6 +353,16 @@ function ZoneView({
                 />
               )}
               {f.alias}
+              {/* P5+ 重复 chip 警告 — alias 后跟一个红 ⚠;tooltip 在 chip 自身的 title 上 */}
+              {f.duplicate && (
+                <span
+                  className="dropzone__tag-warning"
+                  data-testid={`tag-warning-${f.name}`}
+                  aria-label="重复字段警告"
+                >
+                  ⚠
+                </span>
+              )}
               {/* 排序状态箭头：4 种之一（仅在该字段参与排序时显示）*/}
               {f.sortDirection && (
                 <span
@@ -421,21 +451,33 @@ export function DropZones({
   const measureAxisInColumns = viewConfig.columns.some(isMeasureAxisField);
   const measureAxisExplicit = measureAxisInRows || measureAxisInColumns;
 
+  // P5+ 重复 chip 检测 — 计算 row/column/value 三个 zone 的 duplicate index 集合
+  // 拖拽不 dedup,这里仅做视觉标记;buildQuery 翻译前会用同一份逻辑 first-wins dedup
+  const dupRowIdx = findDuplicateRowIndices(viewConfig.rows);
+  const dupColumnIdx = findDuplicateColumnIndices(viewConfig.columns);
+  const dupValueIdx = findDuplicateValueIndices(viewConfig.values);
+  const DUP_REASON_ROW = '跟前面 chip 完全相同,本次查询会忽略(buildQuery first-wins 去重);移除此 chip 或改字段';
+  const DUP_REASON_VALUE = '跟前面 chip 完全相同,本次查询会忽略;改聚合方式或快速计算去重';
+
   // RowField/ColumnField 的 type 是 RowColFieldType（'Hierarchy'/'Dimension'/'CalcGroup'/'NamedSet'/...），
   // 与 dropRules 的 FieldType 名称一致；直接当 FieldType 用。
-  const rowFields: FieldTag[] = viewConfig.rows.map((r) => ({
+  const rowFields: FieldTag[] = viewConfig.rows.map((r, i) => ({
     name: r.fieldName,
     dragFieldName: r.fieldName,
     alias: isMeasureAxisField(r) ? 'Σ 度量名称' : aliasOf(r.fieldName),
     fieldType: r.type as FieldType,
     displayType: isMeasureAxisField(r) ? null : displayTypeOf(r.fieldName),
+    duplicate: dupRowIdx.has(i),
+    duplicateReason: dupRowIdx.has(i) ? DUP_REASON_ROW : undefined,
   }));
-  const columnFields: FieldTag[] = viewConfig.columns.map((c) => ({
+  const columnFields: FieldTag[] = viewConfig.columns.map((c, i) => ({
     name: c.fieldName,
     dragFieldName: c.fieldName,
     alias: isMeasureAxisField(c) ? 'Σ 度量名称' : aliasOf(c.fieldName),
     fieldType: c.type as FieldType,
     displayType: isMeasureAxisField(c) ? null : displayTypeOf(c.fieldName),
+    duplicate: dupColumnIdx.has(i),
+    duplicateReason: dupColumnIdx.has(i) ? DUP_REASON_ROW : undefined,
   }));
   // 用户没显式拖动 → 在列轴末尾**隐式**显示一个 Σ chip（占位，告诉用户度量在列）
   // 拖到行后 viewConfig 真正记录此字段（implicit → explicit）
@@ -451,7 +493,7 @@ export function DropZones({
   //   chip 标识用 encoded full name = getMeasureFieldName(v),保证 React key / remove / 右键菜单都精确到单 chip。
   //   显示别名用 baseAlias + (aggregator label, quickCalc label) 后缀。
   //   跨 zone 拖动用 base measureName(其他 zone 不认 encoded 名)。
-  const valueFields: FieldTag[] = viewConfig.values.map((v) => {
+  const valueFields: FieldTag[] = viewConfig.values.map((v, i) => {
     const qcLabel = v.quickCalc
       ? (findQuickCalcOption((v.quickCalc as { _enum: string })._enum)?.label ?? null)
       : null;
@@ -465,6 +507,8 @@ export function DropZones({
       fieldType: 'Measure' as FieldType,
       quickCalcLabel: null, // 已 inline 到 alias,不再单独显示
       displayType: displayTypeOf(v.measureName),
+      duplicate: dupValueIdx.has(i),
+      duplicateReason: dupValueIdx.has(i) ? DUP_REASON_VALUE : undefined,
     };
   });
   // 派生 mode flag(单源 — computeViewMode);adhoc 下 measureFilter 灰显,zone 显示规则 等都用它

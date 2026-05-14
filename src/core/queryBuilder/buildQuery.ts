@@ -29,6 +29,11 @@ import type { Metadata, PageState, RowField, ViewConfig } from '../../types/inde
 import type { QueryField, Query } from '../../types/query.js';
 import { buildMetadataIndex, type MetadataIndex } from '../metadata/fieldIndex.js';
 import type { FieldNode } from '../../types/metadata.js';
+import {
+  dedupColumnFields,
+  dedupRowFields,
+  dedupValueFields,
+} from '../viewConfig/findDuplicates.js';
 import { getMeasureFieldName } from '../viewConfig/quickCalcs.js';
 
 import { placeMeasureAxis } from './measureAxis.js';
@@ -106,7 +111,15 @@ function buildDimensionFields(
   return out;
 }
 
-export function buildQuery(viewConfig: ViewConfig, metadata: Metadata, pageState: PageState): Query {
+export function buildQuery(rawViewConfig: ViewConfig, metadata: Metadata, pageState: PageState): Query {
+  // P5+ 翻译前 first-wins dedup — 拖拽不限制重复(UI 红边框已示警),query 层去重避免后端 406
+  // 见 docs/conditional-format-design.md 邻近 design pattern 与 findDuplicates.ts 不变量
+  const viewConfig: ViewConfig = {
+    ...rawViewConfig,
+    rows: dedupRowFields(rawViewConfig.rows),
+    columns: dedupColumnFields(rawViewConfig.columns),
+    values: dedupValueFields(rawViewConfig.values),
+  };
   const index = buildMetadataIndex(metadata);
 
   validateViewConfig(viewConfig, index);

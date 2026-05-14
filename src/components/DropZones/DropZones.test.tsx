@@ -587,3 +587,70 @@ describe('DropZones — filter zone 递归展开 group (P5+)', () => {
     expect(onRemove).toHaveBeenCalledWith('filter', FIELD_IDS.provinceLevel);
   });
 });
+
+describe('DropZones — P5+ duplicate chip 视觉警告', () => {
+  it('row 区同 fieldName 第 2 次 → data-duplicate=true + ⚠ icon', () => {
+    const vc = buildViewConfig({
+      rows: [
+        { fieldName: FIELD_IDS.provinceLevel, type: 'Dimension' },
+        { fieldName: FIELD_IDS.provinceLevel, type: 'Dimension' }, // 重复
+      ],
+    });
+    render(
+      <DropZones
+        viewConfig={vc}
+        metadata={orderModelMetadata}
+        onDrop={vi.fn()}
+        onRemove={vi.fn()}
+      />,
+    );
+    const rowZone = screen.getByTestId('zone-row');
+    const chips = within(rowZone).getAllByText('省份');
+    // 第 1 个 chip 不标 duplicate;第 2 个 chip 标 duplicate
+    // chip 是 alias text 的 parent <span> — 用 closest 找父
+    expect(chips[0]!.closest('[data-field-tag]')!.getAttribute('data-duplicate')).toBeNull();
+    expect(chips[1]!.closest('[data-field-tag]')!.getAttribute('data-duplicate')).toBe('true');
+    // ⚠ icon 只有第 2 个出现
+    const warnings = within(rowZone).queryAllByText('⚠');
+    expect(warnings).toHaveLength(1);
+  });
+
+  it('value 区同 measure 同 agg(默认)第 2 次 → 标 duplicate', () => {
+    const vc = buildViewConfig({
+      values: [
+        buildValueField({ measureName: FIELD_IDS.salesMeasure }),
+        buildValueField({ measureName: FIELD_IDS.salesMeasure }), // 同 agg=null,qc=null → 重复
+      ],
+    });
+    render(
+      <DropZones
+        viewConfig={vc}
+        metadata={orderModelMetadata}
+        onDrop={vi.fn()}
+        onRemove={vi.fn()}
+      />,
+    );
+    const valueZone = screen.getByTestId('zone-value');
+    const warnings = within(valueZone).getAllByText('⚠');
+    expect(warnings).toHaveLength(1);
+  });
+
+  it('value 区同 measure 不同 agg → 不标 duplicate', () => {
+    const vc = buildViewConfig({
+      values: [
+        buildValueField({ measureName: FIELD_IDS.salesMeasure }),
+        buildValueField({ measureName: FIELD_IDS.salesMeasure, aggregator: 'AVG' }),
+      ],
+    });
+    render(
+      <DropZones
+        viewConfig={vc}
+        metadata={orderModelMetadata}
+        onDrop={vi.fn()}
+        onRemove={vi.fn()}
+      />,
+    );
+    const valueZone = screen.getByTestId('zone-value');
+    expect(within(valueZone).queryByText('⚠')).toBeNull();
+  });
+});

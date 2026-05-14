@@ -455,4 +455,56 @@ describe('buildQuery', () => {
       expect(sort.measure.name).toBe(FIELD_IDS.salesMeasure);
     });
   });
+
+  describe('P5+ first-wins dedup(viewConfig 重复 chip 自动去重)', () => {
+    it('rows 同 fieldName 重复 → query.rows 只剩一个', () => {
+      const vc = buildViewConfig({
+        rows: [
+          { fieldName: 'ShipProvince2', type: 'Dimension' },
+          { fieldName: 'ShipProvince2', type: 'Dimension' }, // 重复
+        ],
+        values: [buildValueField()],
+      });
+      const q = buildQuery(vc, orderModelMetadata, defaultPageState);
+      expect(q.rows).toEqual(['ShipProvince2']);
+    });
+
+    it('values 同 measure 同 agg 重复 → query fields 只剩一个 measure 列', () => {
+      const vc = buildViewConfig({
+        values: [buildValueField(), buildValueField()], // 两个都默认 agg+qc=null
+      });
+      const q = buildQuery(vc, orderModelMetadata, defaultPageState);
+      // columns 里只 1 个 measure 字段名(沿列轴展开)
+      expect(q.columns.filter((c) => c === FIELD_IDS.salesMeasure)).toHaveLength(1);
+    });
+
+    it('values 同 measure 不同 agg → 都保留(三元组不冲突)', () => {
+      const vc = buildViewConfig({
+        values: [
+          buildValueField(),  // 默认 agg=null
+          buildValueField({ aggregator: 'AVG' }),
+        ],
+      });
+      const q = buildQuery(vc, orderModelMetadata, defaultPageState);
+      // 不同 agg → 两个不同的 encoded fieldName 进 columns
+      // (默认 agg → 原 measureName;AVG → measureName@AGG@AVG)
+      const measureCols = q.columns.filter(
+        (c) => typeof c === 'string' && c.startsWith(FIELD_IDS.salesMeasure),
+      );
+      expect(measureCols).toHaveLength(2);
+    });
+
+    it('columns 重复 → query.columns dedup', () => {
+      const vc = buildViewConfig({
+        columns: [
+          { fieldName: 'ShipProvince2', type: 'Dimension' },
+          { fieldName: 'ShipProvince2', type: 'Dimension' }, // 重复
+        ],
+        values: [buildValueField()],
+      });
+      const q = buildQuery(vc, orderModelMetadata, defaultPageState);
+      // ShipProvince2 出现的次数(measure 名也可能在 columns 里,做精确比对)
+      expect(q.columns.filter((c) => c === 'ShipProvince2')).toHaveLength(1);
+    });
+  });
 });

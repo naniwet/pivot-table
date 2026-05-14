@@ -24,6 +24,7 @@
  */
 
 import { buildMetadataIndex } from '../metadata/fieldIndex.js';
+import { dedupRowFields } from '../viewConfig/findDuplicates.js';
 import { translateRows } from './translators/rows.js';
 import { translateDimensionFilter } from './translators/dimensionFilter.js';
 import type { Metadata } from '../../types/metadata.js';
@@ -205,10 +206,15 @@ function preprocessAdhocFilters(
 }
 
 export function buildAdhocQuery(
-  viewConfig: ViewConfig,
+  rawViewConfig: ViewConfig,
   metadata: Metadata,
   pageState: PageState,
 ): Query {
+  // P5+ 翻译前 first-wins dedup — 同 buildQuery,避免后端 406(adhoc rows 重复字段)
+  const viewConfig: ViewConfig = {
+    ...rawViewConfig,
+    rows: dedupRowFields(rawViewConfig.rows),
+  };
   const index = buildMetadataIndex(metadata);
 
   // rows 翻译:复用 translateRows(展开 Hierarchy levels,处理 NamedSet 等)

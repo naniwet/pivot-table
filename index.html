@@ -1253,6 +1253,21 @@
       .dropzone__tag[data-disabled="true"]:hover {
         opacity: 0.65;
       }
+      /* P5+ 重复 chip 标记 — 红色边框 + ⚠ icon。语义:这个 chip 跟前面某个完全一样,
+       * buildQuery 翻译时会被 dedup 掉。视觉醒目但不灰显(用户能看清自己拖的内容) */
+      .dropzone__tag[data-duplicate="true"] {
+        border-color: var(--red, #ef4444);
+        background: #fef2f2; /* red-50 */
+      }
+      .dropzone__tag-warning {
+        display: inline-flex;
+        align-items: center;
+        color: var(--red, #ef4444);
+        font-size: 12px;
+        font-weight: 700;
+        margin-left: 4px;
+        line-height: 1;
+      }
       /* Group filter chip */
       .filter-panel__chip--group {
         background: var(--orange-bg);
