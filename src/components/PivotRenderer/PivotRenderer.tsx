@@ -61,7 +61,7 @@ export interface PivotRendererProps {
   ) => void;
   /**
    * Drill down on a hierarchy axis (drillDepth + 1)。每个 row 的 ▶ 都触发同一 hierarchy 的 drill down
-   * （drill 是"轴深度"概念，不是"per-row 展开"——见 [ADR-004-finding.md](../../../ADR-004-finding.md) C2）
+   * （drill 是"轴深度"概念，不是"per-row 展开"——见 [docs/adr-004-hierarchy-drill.md](../../../docs/adr-004-hierarchy-drill.md) C2）
    */
   onDrillDown: (hierarchyFieldName: string) => void;
   /** Drill up on a hierarchy axis (drillDepth - 1) */

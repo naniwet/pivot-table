@@ -1,7 +1,7 @@
 /**
  * DropZones 组件测试
  *
- * 范围（P0，[phase-p0.md](../../../prd/phase-p0.md) §2）：
+ * 范围（P0，[phase-p0.md](../../../docs/prd/phase-p0.md) §2）：
  *   - 4 个 zone：行轴 / 列轴 / 数值 / 筛选（filter P0 显示但不可放）
  *   - 已存在字段以 alias 渲染（用 metadata 解析）
  *   - draggingFieldType 给定时：合法 zone data-can-drop="true"，非法 "false" + title tooltip

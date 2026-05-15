@@ -4,7 +4,7 @@
  * 不单测内部（FieldTree/DropZones/PivotRenderer 等已有 unit tests）；
  * 这里只验"4 个零件被正确粘合后能跑通场景 B"。
  *
- * 场景（[phase-p0.md](../../../prd/phase-p0.md) §0）：
+ * 场景（[phase-p0.md](../../../docs/prd/phase-p0.md) §0）：
  *   1. 默认视图加载（hierarchy 行 + 销售额值，DESC 排序）
  *   2. 点 ▶ 展开"江苏"
  *   3. 点 ▶ 展开"苏南"

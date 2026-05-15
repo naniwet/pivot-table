@@ -1,8 +1,8 @@
 /**
  * buildPageSettings — 构造 query.pageSettings
  *
- * P0 默认值参见 prd/phase-p0.md 第 3 节 QueryBuilder。
- * 待联调确认后端默认值（见 prd/1-product.md 阻塞项 2）。
+ * P0 默认值参见 docs/prd/phase-p0.md 第 3 节 QueryBuilder。
+ * 待联调确认后端默认值（见 docs/prd/1-product.md 阻塞项 2）。
  */
 
 import type { PageState } from '../../../types/index.js';

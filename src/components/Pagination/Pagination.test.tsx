@@ -1,7 +1,7 @@
 /**
  * Pagination 组件测试
  *
- * 范围（P0，[phase-p0.md](../../../prd/phase-p0.md) §6）：
+ * 范围（P0，[phase-p0.md](../../../docs/prd/phase-p0.md) §6）：
  *   - 仅行轴
  *   - 显示页号、当前/总页数
  *   - 上/下一页按钮（边界禁用）
