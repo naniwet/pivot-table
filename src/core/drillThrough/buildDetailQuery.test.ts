@@ -383,3 +383,131 @@ describe('canViewDetail', () => {
     expect(canViewDetail(enumVc)).toBe(false);
   });
 });
+
+describe('buildDetailQuery — P5+ 单 cell drill-through 只带 cell 对应 measure', () => {
+  // 注入第二个 MEASURE 节点(fixture 只有 1 个);复用 salesMeasure 模板改 name/alias
+  // 关键:`parentId: null` 让它当 root,buildMetadataIndex 的树 walk 能直接索引到
+  // (否则放在 metadata.nodes 数组里但没在任何 parent.children 里 → walk 不到)
+  const otherMeasure = 'cost_measure_for_test';
+  const salesNode = orderModelMetadata.nodes.find((n) => n.name === MEASURE)!;
+  const otherMeasureNode = {
+    ...salesNode,
+    id: 'mm_cost',
+    name: otherMeasure,
+    alias: '销售成本',
+    aliasFromDb: '销售成本',
+    type: 'MEASURE' as const,
+    parentId: null,
+    children: [],
+    visible: 1 as const,
+  };
+  const meta = {
+    ...orderModelMetadata,
+    nodes: [...orderModelMetadata.nodes, otherMeasureNode],
+  };
+
+  it('单 cell colMember 含 Measure → rows 里只带该 measure(忽略其他)', () => {
+    const vc = buildViewConfig({
+      rows: [buildHierarchyRow({ fieldName: HIER, drillDepth: 1 })],
+      values: [
+        buildValueField({ measureName: MEASURE }),
+        buildValueField({ measureName: otherMeasure }),
+      ],
+    });
+    const rowMember: Member[] = [makeMember({ uniqueName: ['江苏'], fieldName: 'ShipProvince2' })];
+    const colMember: Member[] = [
+      {
+        name: '销售额',
+        uniqueName: ['Measures', MEASURE],
+        level: 'MeasuresLevel',
+        dimension: 'Measures',
+        fieldName: MEASURE,
+      },
+    ];
+    const q = buildDetailQuery({ viewConfig: vc, metadata: meta, rowMember, colMember });
+    expect(q.rows).toContain(MEASURE);
+    expect(q.rows).not.toContain(otherMeasure);
+  });
+
+  it('cell 含 Measure(encoded @AGG@AVG 后缀)→ 仍按 base measureName 匹配', () => {
+    const vc = buildViewConfig({
+      rows: [buildHierarchyRow({ fieldName: HIER, drillDepth: 1 })],
+      values: [
+        buildValueField({ measureName: MEASURE }),
+        buildValueField({ measureName: otherMeasure }),
+      ],
+    });
+    const rowMember: Member[] = [makeMember({ uniqueName: ['江苏'], fieldName: 'ShipProvince2' })];
+    const colMember: Member[] = [
+      {
+        name: '销售额(平均值)',
+        uniqueName: ['Measures', `${MEASURE}@AGG@AVG`],
+        level: 'MeasuresLevel',
+        dimension: 'Measures',
+        fieldName: `${MEASURE}@AGG@AVG`,
+      },
+    ];
+    const q = buildDetailQuery({ viewConfig: vc, metadata: meta, rowMember, colMember });
+    expect(q.rows).toContain(MEASURE);
+    expect(q.rows).not.toContain(otherMeasure);
+  });
+
+  it('Toolbar 明细按钮场景(rowMember/colMember=[])→ 退化为带所有 measures(向后兼容)', () => {
+    const vc = buildViewConfig({
+      rows: [buildHierarchyRow({ fieldName: HIER, drillDepth: 1 })],
+      values: [
+        buildValueField({ measureName: MEASURE }),
+        buildValueField({ measureName: otherMeasure }),
+      ],
+    });
+    const q = buildDetailQuery({
+      viewConfig: vc,
+      metadata: meta,
+      rowMember: [],
+      colMember: [],
+    });
+    expect(q.rows).toContain(MEASURE);
+    expect(q.rows).toContain(otherMeasure);
+  });
+
+  it('cell colMember 无 Measure member(纯维度 cell)→ 退化为带所有 measures', () => {
+    const vc = buildViewConfig({
+      rows: [buildHierarchyRow({ fieldName: HIER, drillDepth: 1 })],
+      values: [
+        buildValueField({ measureName: MEASURE }),
+        buildValueField({ measureName: otherMeasure }),
+      ],
+    });
+    const rowMember: Member[] = [makeMember({ uniqueName: ['江苏'], fieldName: 'ShipProvince2' })];
+    const colMember: Member[] = []; // 无 Measures member
+    const q = buildDetailQuery({ viewConfig: vc, metadata: meta, rowMember, colMember });
+    expect(q.rows).toContain(MEASURE);
+    expect(q.rows).toContain(otherMeasure);
+  });
+
+  it('同 measureName 多 agg(SUM+AVG)cell 点 SUM → rows 仍只有一个 measureName(去重)', () => {
+    const vc = buildViewConfig({
+      rows: [buildHierarchyRow({ fieldName: HIER, drillDepth: 1 })],
+      values: [
+        buildValueField({ measureName: MEASURE }),
+        buildValueField({ measureName: MEASURE, aggregator: 'AVG' }),
+      ],
+    });
+    const colMember: Member[] = [
+      {
+        name: '销售额',
+        uniqueName: ['Measures', MEASURE],
+        level: 'MeasuresLevel',
+        dimension: 'Measures',
+        fieldName: MEASURE,
+      },
+    ];
+    const q = buildDetailQuery({
+      viewConfig: vc,
+      metadata: meta,
+      rowMember: [makeMember({ uniqueName: ['江苏'], fieldName: 'ShipProvince2' })],
+      colMember,
+    });
+    expect(q.rows.filter((r) => r === MEASURE)).toHaveLength(1);
+  });
+});
