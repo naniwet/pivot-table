@@ -84,15 +84,30 @@ export function buildDetailQuery(input: BuildDetailQueryInput): Query {
   const dimRows = viewConfig.rows.filter((r) => r.type !== 'MeasureGroupName');
   const dimCols = viewConfig.columns.filter((c) => c.type !== 'MeasureGroupName');
 
-  // 度量字段:只带普通 Measure(每行一个数值),跳过 CalcMeasure(聚合表达式无明细概念)
-  // UserCalcMeasure(自建)已被 canViewDetail 整体挡住,不会到这里
+  // 度量字段:单元格右键时只用当前度量(colMember/rowMember 中 dimension=Measures 的 member);
+  // Toolbar"明细"按钮(rowMember/colMember 都为空)→ 带全部普通 Measure
   const measureFieldNames: string[] = [];
-  for (const v of viewConfig.values) {
-    const node = index.findByName(v.measureName);
-    if (node?.type === 'MEASURE') {
-      measureFieldNames.push(v.measureName);
+  if (rowMember.length > 0 || colMember.length > 0) {
+    // 找度量 member 的 fieldName(通常在 colMember 里,行轴放度量时在 rowMember)
+    const measureMember = [...rowMember, ...colMember].find(
+      (m) => m.dimension === MEASURES_DIMENSION,
+    );
+    if (measureMember) {
+      const node = index.findByName(measureMember.fieldName);
+      if (node?.type === 'MEASURE') {
+        measureFieldNames.push(measureMember.fieldName);
+      }
     }
-    // node.type === 'CALC_MEASURE' → 跳过;node 不存在(custom)→ 也跳过
+  }
+  // 无度量 member(工具栏入口或无度量轴)→ fallback 到全部普通 Measure
+  if (measureFieldNames.length === 0) {
+    for (const v of viewConfig.values) {
+      const node = index.findByName(v.measureName);
+      if (node?.type === 'MEASURE') {
+        measureFieldNames.push(v.measureName);
+      }
+      // node.type === 'CALC_MEASURE' → 跳过;node 不存在(custom)→ 也跳过
+    }
   }
 
   const detailRows = [

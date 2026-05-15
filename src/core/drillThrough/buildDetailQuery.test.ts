@@ -179,6 +179,93 @@ describe('buildDetailQuery', () => {
     expect(q.rows).not.toContain(calcMeasureName);
   });
 
+  it('单元格右键:colMember 有度量 member 时只用该度量,不带其他度量', () => {
+    // 构造第二个普通度量(利润)注入 metadata
+    // 需要同时加到 nodes[] 和父节点的 children[] — buildMetadataIndex 从根递归遍历
+    const profitMeasureName = 'profit_measure';
+    const salesNode = orderModelMetadata.nodes.find(
+      (n) => n.name === FIELD_IDS.salesMeasure,
+    )!;
+    const meta = {
+      ...orderModelMetadata,
+      nodes: [
+        ...orderModelMetadata.nodes,
+        {
+          ...salesNode,
+          id: 'pm_xxx',
+          name: profitMeasureName,
+          alias: '利润',
+          aliasFromDb: '利润',
+          type: 'MEASURE' as const,
+          parentId: null as unknown as string,
+          children: [],
+        },
+      ],
+    };
+    const vc = buildViewConfig({
+      rows: [buildHierarchyRow({ fieldName: HIER, drillDepth: 1 })],
+      values: [
+        buildValueField({ measureName: MEASURE }),
+        buildValueField({ measureName: profitMeasureName }),
+      ],
+    });
+    // 右键点了销售额的单元格
+    const q = buildDetailQuery({
+      viewConfig: vc,
+      metadata: meta,
+      rowMember: [makeMember({ uniqueName: ['江苏'], fieldName: 'ShipProvince2' })],
+      colMember: [
+        {
+          name: '销售额',
+          uniqueName: ['Measures', MEASURE],
+          level: 'MeasuresLevel',
+          dimension: 'Measures',
+          fieldName: MEASURE,
+        },
+      ],
+    });
+    expect(q.rows).toContain(MEASURE);
+    expect(q.rows).not.toContain(profitMeasureName);
+  });
+
+  it('工具栏明细:rowMember/colMember 为空时带全部普通度量', () => {
+    const profitMeasureName = 'profit_measure';
+    const salesNode = orderModelMetadata.nodes.find(
+      (n) => n.name === FIELD_IDS.salesMeasure,
+    )!;
+    const meta = {
+      ...orderModelMetadata,
+      nodes: [
+        ...orderModelMetadata.nodes,
+        {
+          ...salesNode,
+          id: 'pm2_xxx',
+          name: profitMeasureName,
+          alias: '利润',
+          aliasFromDb: '利润',
+          type: 'MEASURE' as const,
+          parentId: null as unknown as string,
+          children: [],
+        },
+      ],
+    };
+    const vc = buildViewConfig({
+      rows: [buildHierarchyRow({ fieldName: HIER, drillDepth: 1 })],
+      values: [
+        buildValueField({ measureName: MEASURE }),
+        buildValueField({ measureName: profitMeasureName }),
+      ],
+    });
+    const q = buildDetailQuery({
+      viewConfig: vc,
+      metadata: meta,
+      rowMember: [],
+      colMember: [],
+    });
+    expect(q.rows).toContain(MEASURE);
+    expect(q.rows).toContain(profitMeasureName);
+  });
+
   it('I5: rows = 当前 viewConfig.rows + columns 字段(展开 hierarchy levels;MeasureGroupName 跳过)', () => {
     const vc = buildViewConfig({
       rows: [buildHierarchyRow({ fieldName: HIER, drillDepth: 2 })],

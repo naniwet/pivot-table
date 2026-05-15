@@ -1200,6 +1200,15 @@ describe('PivotTable — 三面板可见性', () => {
     }
   });
 
+  // 清里避免污染后续 describe block(如翻页 UI 模式)
+  afterEach(() => {
+    try {
+      localStorage.removeItem('pivot-table-panel-visibility');
+    } catch {
+      // 同上
+    }
+  });
+
   it('默认 — 工具栏 / 字段面板 / 字段树 全部可见', () => {
     render(
       <PivotTable
@@ -1276,6 +1285,15 @@ describe('PivotTable — 三面板可见性', () => {
 // 验证 settings modal 里的 radio 切换 + 主区 Pagination 是否按预期显示/隐藏
 // ============================================================
 describe('PivotTable — 翻页 UI 模式(分页器 / 滚动加载)', () => {
+  // localStorage 在测试间会污染:每个 case 前清掉,避免三面板可见性测试遗留的偏好影响默认值
+  beforeEach(() => {
+    try {
+      localStorage.removeItem('pivot-table-panel-visibility');
+    } catch {
+      // 测试环境不可写 — 默认状态依赖测试声明顺序保证
+    }
+  });
+
   // 一个有数据的最小 viewConfig — 让 PivotTable 渲染主区(包括分页栏)
   function makeViewConfigWithData() {
     return buildViewConfig({
