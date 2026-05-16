@@ -23,7 +23,6 @@ import { computeColRanges } from '../../core/conditionalFormat/computeColRanges.
 import { computeTopBottomCutoffs } from '../../core/conditionalFormat/computeTopBottomCutoffs.js';
 import {
   evaluateDataBar,
-  evaluateSingleRule,
   evaluateThreshold,
   evaluateTopBottom,
   getRuleScope,

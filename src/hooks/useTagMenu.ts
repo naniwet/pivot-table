@@ -437,7 +437,8 @@ export function useTagMenu(opts: UseTagMenuOptions): ContextMenuItem[] {
     items.push({
       key: 'remove',
       label: '从此区域移除',
-      onClick: () => dispatch({ type: 'REMOVE_FIELD', zone, fieldName, chipIndex }),
+      // 注意 action 类型字段是 chipIdx,本地变量名 chipIndex 是 TagMenuTarget 历史命名
+      onClick: () => dispatch({ type: 'REMOVE_FIELD', zone, fieldName, chipIdx: chipIndex }),
     });
 
     return items;
