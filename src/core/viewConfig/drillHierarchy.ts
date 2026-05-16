@@ -2,7 +2,7 @@
  * drillDownHierarchy / drillUpHierarchy — Hierarchy 轴深度的两个变更
  *
  * 取代旧 toggleHierarchyExpansion（基于 expandedMembers 的 per-member 展开），
- * 配合 [ADR-004-finding.md](../../../ADR-004-finding.md) C2 策略：drill = 改字段集 + 重发 query
+ * 配合 [docs/adr-004-hierarchy-drill.md](../../../docs/adr-004-hierarchy-drill.md) C2 策略：drill = 改字段集 + 重发 query
  *
  * 单一职责：只调一个 hierarchy RowField 的 drillDepth；其他原样
  */

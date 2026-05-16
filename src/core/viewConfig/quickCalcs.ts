@@ -1,8 +1,8 @@
 /**
  * P1.0 + P2 快速计算（QuickCalc）— 业务名 ↔ 后端枚举映射
  *
- * P1.0 5 个：占行/列/总计 % / 排名 / 累计值 — [prd/phase-p1.md](../../../../prd/phase-p1.md) §7
- * P2  4 个：同期值 / 同比 / 上期 / 环比 — [prd/phase-p2.md](../../../../prd/phase-p2.md) §7
+ * P1.0 5 个：占行/列/总计 % / 排名 / 累计值 — [docs/prd/phase-p1.md](../../../../docs/prd/phase-p1.md) §7
+ * P2  4 个：同期值 / 同比 / 上期 / 环比 — [docs/prd/phase-p2.md](../../../../docs/prd/phase-p2.md) §7
  *
  * 严禁把后端枚举直接暴露给用户：业务名以 label 字段为准。
  *

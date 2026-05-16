@@ -1,13 +1,13 @@
 /**
  * 前端 ViewConfig 类型 — 组件 ↔ 宿主交互的核心数据结构
  *
- * 锁定字段命名（参见 prd/2-architecture.md 第 1.2 节）：
+ * 锁定字段命名（参见 docs/prd/2-architecture.md 第 1.2 节）：
  * - 字段标识统一用 `fieldName`，禁止 `field`/`name`/`id`
  * - 度量标识统一用 `measureName`，禁止 `measure`/`metric`
- * - Hierarchy 当前轴深度统一用 `drillDepth`（[ADR-004-finding.md](../../ADR-004-finding.md) C2 策略）
+ * - Hierarchy 当前轴深度统一用 `drillDepth`（[docs/adr-004-hierarchy-drill.md](../../docs/adr-004-hierarchy-drill.md) C2 策略）
  *   - 由 v0.0.1 的 `expandedMembers: string[][]` 替换；后者已废弃
  *
- * 修订原则：几乎不可逆（影响序列化兼容）。修改前必须 PR 评审 + 更新 prd/2-architecture.md。
+ * 修订原则：几乎不可逆（影响序列化兼容）。修改前必须 PR 评审 + 更新 docs/prd/2-architecture.md。
  */
 
 import type {
@@ -47,7 +47,7 @@ export interface RowField {
   /**
    * Hierarchy 当前轴深度，仅 type=Hierarchy 时有意义。1=仅顶层 level；2=顶+次层；以此类推。
    * 缺省按 1 处理。
-   * Drill ▶ 增 1，drill ▼ 减 1，每次 drill 都重发 query（[ADR-004-finding.md](../../ADR-004-finding.md) C2）。
+   * Drill ▶ 增 1，drill ▼ 减 1，每次 drill 都重发 query（[docs/adr-004-hierarchy-drill.md](../../docs/adr-004-hierarchy-drill.md) C2）。
    */
   drillDepth?: number;
   /**
@@ -140,6 +140,12 @@ export type ClientMeasureFilter = MeasureFilter | MeasureFilterGroup;
 export type Sort =
   | { type: 'ByMeasure'; measureName: string; direction: SortDirection }
   | { type: 'ByDimension'; fieldName: string; direction: SortDirection }
+  /**
+   * P5+ 自定义排序顺序 — 用户为某个维度指定成员的显示顺序(JD/小米/华为/苹果)。
+   * customCaption 数组里的顺序就是 ASC 时的显示顺序;DESC 反序。
+   * 后端用 DimensionSort + sortBy: ByCustomCaption。
+   * 工具函数:setCustomSortOrder / removeCustomSortOrder(`core/viewConfig/cycleRowSort.ts`)
+   */
   | { type: 'ByCustomCaption'; fieldName: string; direction: SortDirection; customCaption: string[] };
 
 // ===== 分页状态 =====

@@ -39,6 +39,12 @@ export interface TagMenuTarget {
   zone: DropZone;
   fieldName: string;
   fieldType: FieldType;
+  /**
+   * P5+ duplicate chip 精确定位 — chip 在 zone 数组中的 idx。
+   * value zone 多 chip 共享 encoded name 时,reducer 优先按 idx 改,避免 findIndex 撞首。
+   * 老 caller 不传 → reducer fallback 按 chipKey 找第一个 match。
+   */
+  chipIdx?: number;
   x: number;
   y: number;
   /** value zone 同 measure 完全重复 chip 的数组索引 */
@@ -64,10 +70,26 @@ export interface UseTagMenuOptions {
    * 不传则不渲染该菜单项。
    */
   onOpenConditionalFormat?: (measure: string) => void;
+  /**
+   * P5+ 维度区 chip 右键 "自定义排序…" — 父组件打开 CustomSortOrderModal。
+   * 仅在 zone='row'/'column' + Dimension/Level 字段时生效。
+   * 不传则不渲染该菜单项。
+   */
+  onOpenCustomSort?: (fieldName: string) => void;
 }
 
 export function useTagMenu(opts: UseTagMenuOptions): ContextMenuItem[] {
-  const { tagMenu, viewConfig, metaIndex, timeAxis, allTimeAxes, viewMode, dispatch, onOpenConditionalFormat } = opts;
+  const {
+    tagMenu,
+    viewConfig,
+    metaIndex,
+    timeAxis,
+    allTimeAxes,
+    viewMode,
+    dispatch,
+    onOpenConditionalFormat,
+    onOpenCustomSort,
+  } = opts;
   const { isAdhoc } = viewMode;
 
   return useMemo<ContextMenuItem[]>(() => {
@@ -128,6 +150,19 @@ export function useTagMenu(opts: UseTagMenuOptions): ContextMenuItem[] {
     const canDown = idxInZone >= 0 && idxInZone < zoneArr.length - 1;
 
     // 子菜单 1:排序 — adhoc 模式不支持分组内排序(无聚合分组)
+    // P5+ 自定义排序 — 仅 row/column zone 的非 Measure 字段(Dimension/Level 等)
+    // pivot/adhoc 都可用(后端 DimensionSort + ByCustomCaption 都支持)
+    const supportsCustomSort =
+      !isMeasure &&
+      fieldType !== 'MeasureGroupName' &&
+      (zone === 'row' || zone === 'column') &&
+      !!onOpenCustomSort;
+    // 当前已配的 ByCustomCaption(用于在菜单项加 ✓ + 检测要不要禁用其他 sort 路径)
+    const currentCustomSort = viewConfig.rowSorts.find(
+      (s): s is Extract<typeof s, { type: 'ByCustomCaption' }> =>
+        s.type === 'ByCustomCaption' && s.fieldName === fieldName,
+    );
+
     const sortChildren: ContextMenuItem[] = [
       sortItem('升序', 'ASC'),
       sortItem('降序', 'DESC'),
@@ -137,18 +172,31 @@ export function useTagMenu(opts: UseTagMenuOptions): ContextMenuItem[] {
       {
         key: 'sort-clear',
         label: '取消排序',
-        disabled: !currentSort,
+        disabled: !currentSort && !currentCustomSort,
         onClick: () => {
           const next = viewConfig.rowSorts.filter(
             (s) =>
               !(
                 (s.type === 'ByMeasure' && s.measureName === fieldName) ||
-                (s.type === 'ByDimension' && s.fieldName === fieldName)
+                (s.type === 'ByDimension' && s.fieldName === fieldName) ||
+                (s.type === 'ByCustomCaption' && s.fieldName === fieldName)
               ),
           );
           dispatch({ type: 'SET', viewConfig: { ...viewConfig, rowSorts: next } });
         },
       },
+      ...(supportsCustomSort
+        ? [
+            { key: 'sort-sep-custom', separator: true as const },
+            {
+              key: 'sort-custom',
+              label: currentCustomSort
+                ? `✓ 自定义排序…(${currentCustomSort.customCaption.length} 项)`
+                : '自定义排序…',
+              onClick: () => onOpenCustomSort!(fieldName),
+            },
+          ]
+        : []),
     ];
 
     // 子菜单 2:位置(上下移)
@@ -198,7 +246,14 @@ export function useTagMenu(opts: UseTagMenuOptions): ContextMenuItem[] {
           onClick: () => {
             if (isCurrent) return;
             const next = a === metadataDefault ? null : a;
-            dispatch({ type: 'SET_VALUE_AGGREGATOR', chipKey, aggregator: next, chipIndex });
+            // P5+ duplicate chip:传 chipIdx 让 reducer 精确改用户点的 chip,
+            // 避免 findIndex 撞首改成别人(chip 1 显示成 AVG、用户点的 chip 2 没动)
+            dispatch({
+              type: 'SET_VALUE_AGGREGATOR',
+              chipKey,
+              chipIdx: tagMenu.chipIdx,
+              aggregator: next,
+            });
           },
         };
       });
@@ -224,7 +279,13 @@ export function useTagMenu(opts: UseTagMenuOptions): ContextMenuItem[] {
           : null;
 
       const setQc = (payload: QuickCalculation | null) => {
-        dispatch({ type: 'SET_VALUE_QUICK_CALC', measureName: fieldName, quickCalc: payload, chipIndex });
+        // P5+ duplicate chip:传 chipIdx 让 reducer 精确改用户点的 chip
+        dispatch({
+          type: 'SET_VALUE_QUICK_CALC',
+          measureName: fieldName,
+          quickCalc: payload,
+          chipIdx: tagMenu.chipIdx,
+        });
       };
 
       const qcChildren: ContextMenuItem[] = [];
@@ -292,7 +353,7 @@ export function useTagMenu(opts: UseTagMenuOptions): ContextMenuItem[] {
               type: 'SET_VALUE_QUICK_CALC',
               measureName: fieldName,
               quickCalc: null,
-              chipIndex,
+              chipIdx: tagMenu.chipIdx,
             }),
         });
       }

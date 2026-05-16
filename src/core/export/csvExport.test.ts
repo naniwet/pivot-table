@@ -1,7 +1,7 @@
 /**
  * renderModelToCsv — RenderModel → CSV 字符串（纯函数）
  *
- * P0 验收（[phase-p0.md](../../../prd/phase-p0.md) §9）：
+ * P0 验收（[phase-p0.md](../../../docs/prd/phase-p0.md) §9）：
  *   "字段名用 alias、数值带格式、含总计行"
  *
  * 格式约定：

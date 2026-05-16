@@ -121,6 +121,7 @@ export type MeasureSortBy =
       includePreDimension: boolean;
     };
 
+/** P5+ DimensionSort 的 sortBy 字段 — 维度排序方式联合(后端 schema) */
 export type DimensionSortBy =
   | { _enum: 'ByCaption' }
   | { _enum: 'ByMeasure'; measure: string; context: MeasureContext }

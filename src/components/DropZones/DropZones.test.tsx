@@ -1,7 +1,7 @@
 /**
  * DropZones 组件测试
  *
- * 范围（P0，[phase-p0.md](../../../prd/phase-p0.md) §2）：
+ * 范围（P0，[phase-p0.md](../../../docs/prd/phase-p0.md) §2）：
  *   - 4 个 zone：行轴 / 列轴 / 数值 / 筛选（filter P0 显示但不可放）
  *   - 已存在字段以 alias 渲染（用 metadata 解析）
  *   - draggingFieldType 给定时：合法 zone data-can-drop="true"，非法 "false" + title tooltip
@@ -207,6 +207,7 @@ describe('DropZones — remove field', () => {
     const user = userEvent.setup();
     const removeBtn = screen.getByTestId(`remove-row-${FIELD_IDS.shipRegionHierarchy}`);
     await user.click(removeBtn);
+    // P5+ 第 3 参 chipIdx — 行 zone 单 chip → idx 0
     expect(onRemove).toHaveBeenCalledWith('row', FIELD_IDS.shipRegionHierarchy, 0);
   });
 
@@ -347,7 +348,7 @@ describe('DropZones — zone 间互拖 (P2)', () => {
 });
 
 describe('DropZones — chip 右键菜单事件 (P2 重构)', () => {
-  it('chip 右键 → onTagContextMenu 收到 (zone, fieldName, fieldType, x, y)', () => {
+  it('chip 右键 → onTagContextMenu 收到 (zone, fieldName, fieldType, chipIdx, x, y)', () => {
     const onCtx = vi.fn();
     const vc = buildViewConfig({
       columns: [{ fieldName: 'A', type: 'Dimension' }],
@@ -365,10 +366,12 @@ describe('DropZones — chip 右键菜单事件 (P2 重构)', () => {
     tag.dispatchEvent(
       new MouseEvent('contextmenu', { bubbles: true, clientX: 50, clientY: 80 }),
     );
+    // P5+ 加 chipIdx — duplicate chip 精确定位
     expect(onCtx).toHaveBeenCalledWith({
       zone: 'column',
       fieldName: 'A',
       fieldType: 'Dimension',
+      chipIdx: 0,
       x: 50,
       y: 80,
       chipIndex: 0,
@@ -655,83 +658,35 @@ describe('DropZones — P5+ duplicate chip 视觉警告', () => {
     expect(within(valueZone).queryByText('⚠')).toBeNull();
   });
 
-  it('同 measure 重复 chip 第 2 个改 agg → 不再标 duplicate,仍只有 2 个 chip(无幽灵节点)', () => {
-    const vc1 = buildViewConfig({
+  // 用户回归场景:value 区三 chip(销售额 + 销售额(AVG) + 销售额)→
+  // 第 1 和第 3 同 encoded name,以前因 React key 碰撞,第 3 个 chip 复用第 1 个 DOM →
+  // data-duplicate 错位 + 视觉残留(蓝色 focus 边框) → 用户称"幽灵节点"
+  it('value 区第 3 个 chip 跟第 1 个完全同 encoded name → 仍正确标 duplicate(React key 不碰撞)', () => {
+    const vc = buildViewConfig({
       values: [
-        buildValueField({ measureName: FIELD_IDS.salesMeasure }),
-        buildValueField({ measureName: FIELD_IDS.salesMeasure }), // duplicate
+        buildValueField({ measureName: FIELD_IDS.salesMeasure }), // 销售额(默认)
+        buildValueField({ measureName: FIELD_IDS.salesMeasure, aggregator: 'AVG' }), // 销售额(AVG)
+        buildValueField({ measureName: FIELD_IDS.salesMeasure }), // 销售额(默认) — 跟 [0] 撞
       ],
     });
-    const { rerender } = render(
+    render(
       <DropZones
-        viewConfig={vc1}
+        viewConfig={vc}
         metadata={orderModelMetadata}
         onDrop={vi.fn()}
         onRemove={vi.fn()}
       />,
     );
     const valueZone = screen.getByTestId('zone-value');
-    // 初始:2 chip + ⚠ icon 1 个
+    const chips = valueZone.querySelectorAll<HTMLElement>('[data-field-tag]');
+    // 顺序:索引 0 是 measure axis sentinel chip(隐式,在 column zone push,这里不会有),
+    // 所以 value zone chip 应该 3 个
+    expect(chips).toHaveLength(3);
+    // 第 1(idx 0)和第 3(idx 2)同 encoded name,但第 3 应该是 duplicate
+    expect(chips[0]!.getAttribute('data-duplicate')).toBeNull();
+    expect(chips[1]!.getAttribute('data-duplicate')).toBeNull();
+    expect(chips[2]!.getAttribute('data-duplicate')).toBe('true');
+    // ⚠ icon 只出现在第 3 个
     expect(within(valueZone).getAllByText('⚠')).toHaveLength(1);
-
-    // 模拟第 2 个 chip 切聚合方式
-    const vc2 = buildViewConfig({
-      values: [
-        buildValueField({ measureName: FIELD_IDS.salesMeasure }),
-        buildValueField({ measureName: FIELD_IDS.salesMeasure, aggregator: 'SUM' }),
-      ],
-    });
-    rerender(
-      <DropZones
-        viewConfig={vc2}
-        metadata={orderModelMetadata}
-        onDrop={vi.fn()}
-        onRemove={vi.fn()}
-      />,
-    );
-
-    // duplicate 标记应消失
-    expect(within(valueZone).queryByText('⚠')).toBeNull();
-    // 仍只有 2 个 chip(data-field-tag)
-    const chips = valueZone.querySelectorAll('[data-field-tag]');
-    expect(chips).toHaveLength(2);
-  });
-
-  it('同 measure 重复 chip 第 2 个改 qc → 不标 duplicate,仍 2 chip', () => {
-    const vc1 = buildViewConfig({
-      values: [
-        buildValueField({ measureName: FIELD_IDS.salesMeasure }),
-        buildValueField({ measureName: FIELD_IDS.salesMeasure }), // duplicate
-      ],
-    });
-    const { rerender } = render(
-      <DropZones
-        viewConfig={vc1}
-        metadata={orderModelMetadata}
-        onDrop={vi.fn()}
-        onRemove={vi.fn()}
-      />,
-    );
-    const valueZone = screen.getByTestId('zone-value');
-    expect(within(valueZone).getAllByText('⚠')).toHaveLength(1);
-
-    const vc2 = buildViewConfig({
-      values: [
-        buildValueField({ measureName: FIELD_IDS.salesMeasure }),
-        buildValueField({ measureName: FIELD_IDS.salesMeasure, quickCalc: { _enum: 'TotalPercent' } }),
-      ],
-    });
-    rerender(
-      <DropZones
-        viewConfig={vc2}
-        metadata={orderModelMetadata}
-        onDrop={vi.fn()}
-        onRemove={vi.fn()}
-      />,
-    );
-
-    expect(within(valueZone).queryByText('⚠')).toBeNull();
-    const chips = valueZone.querySelectorAll('[data-field-tag]');
-    expect(chips).toHaveLength(2);
   });
 });

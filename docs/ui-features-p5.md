@@ -193,3 +193,141 @@ src/components/DropZones/DropZones.tsx         chip 加数据类型 badge
 src/components/SettingsModal/SettingsModal.tsx 全表总计 / 小计位置 入口
 index.html                                     icon CSS(FieldTree + DropZones 共享 + date CSS-drawn)
 ```
+
+---
+
+## 5. 重复 chip 视觉警告 + buildQuery first-wins dedup
+
+### 5.1 问题
+
+用户拖同字段多次,viewConfig 累积重复 chip,buildQuery 翻译时把重复 fieldName / (measure, agg, qc) 三元组发后端,后端 406。
+
+### 5.2 设计 — "拖拽放行 + 查询去重 + 视觉警告"
+
+| 层 | 行为 |
+|---|---|
+| 拖拽 reducer | 100% 放行(不打断,chip 立刻出现) |
+| DropZones 渲染 | 检测重复 chip → 红边框 + ⚠ icon + tooltip |
+| buildQuery 入口 | first-wins dedup,避免后端 406 |
+| 用户改 chip agg/qc | key 不再撞 → 警告自动清除(动态响应) |
+
+### 5.3 Dedup key
+
+| Zone | Key |
+|---|---|
+| Row / Column | `fieldName` |
+| Value | `(measureName, aggregator, quickCalcEnum+dateLevel)` 四元组 |
+| Filter | 已在 DropZones 显示层做 `collectFilterLeafFields + dedupe`(group 内 leaf 递归展平后去重),不走此路径 |
+
+### 5.4 视觉
+
+- chip `data-duplicate="true"` → CSS 红边框 + 浅红底
+- alias 右侧追加 `.dropzone__tag-warning` span,内容 ⚠(red)
+- tooltip 优先级:`duplicate > disabled > 普通提示`
+
+### 5.5 实现要点
+
+```ts
+// findDuplicates.ts — 单源,DropZones + buildQuery 都用
+export function findDuplicateValueIndices(values: ValueField[]): Set<number>
+export function dedupValueFields(values: ValueField[]): ValueField[]
+
+// buildQuery 入口
+export function buildQuery(rawViewConfig: ViewConfig, ...): Query {
+  const viewConfig = {
+    ...rawViewConfig,
+    rows: dedupRowFields(rawViewConfig.rows),
+    columns: dedupColumnFields(rawViewConfig.columns),
+    values: dedupValueFields(rawViewConfig.values),
+  };
+  ...
+}
+```
+
+reducer 仍纯,不动 viewConfig 结构(用户拖入的 chip 保留)。
+
+### 5.6 测试 (+25)
+
+- findDuplicates 18:row/column/value 各类去重 + key 函数 + 边界
+- buildQuery 4:rows/columns 重复 dedup + values 三元组(同 agg 去重 / 不同 agg 保留)
+- DropZones 3:row 重复标红 / value 同 agg 标红 / value 不同 agg 不标
+
+### 5.7 关键文件
+
+```
+src/core/viewConfig/findDuplicates.ts       检测 + dedup helper(单源)
+src/core/queryBuilder/buildQuery.ts         入口处 dedup
+src/core/queryBuilder/buildAdhocQuery.ts    入口处 dedup(只 rows)
+src/components/DropZones/DropZones.tsx      duplicate 状态 + ⚠ icon
+index.html                                  .dropzone__tag[data-duplicate=true] 红边框
+```
+
+---
+
+## 6. Filter zone 递归展平显示 chip
+
+### 6.1 问题
+
+`viewConfig.filters` 顶层是 group(`OR(year=2023, year=2024)`)时,DropZones filter zone 啥 chip 都不渲染 — 用户看不到当前在过滤什么。
+
+### 6.2 根因
+
+```ts
+// 旧实现 — 只看顶层 leaf
+viewConfig.filters.filter((f) => f.kind === 'leaf').map(...)
+```
+
+group 被排除;同样问题在 measureFilters。
+
+### 6.3 修复
+
+递归扫整棵 filter 树收集所有 leaf 的 fieldName,去重后每个 fieldName 渲染 1 个 chip。删除 × → `removeFieldFromZone` 已递归裁(包括 group 内嵌 + 空 group 清理),reducer 不动。
+
+```ts
+function collectFilterLeafFields(filter: ClientFilter): string[] {
+  if (filter.kind === 'leaf') return [filter.field];
+  return filter.children.flatMap(collectFilterLeafFields);
+}
+```
+
+### 6.4 不变量
+
+- 同 fieldName 多次出现(`OR(year=2023, year=2024)`)→ **1 个 chip**(去重保序)
+- 多 field 嵌套 group → 每个 fieldName 各 1 chip
+- 删除 × 调 `onRemove(zone, fieldName)`,reducer 递归裁所有相关 leaf
+
+### 6.5 关键文件
+
+```
+src/components/DropZones/DropZones.tsx        collectFilterLeafFields / collectMeasureLeafFields + dedupe
+src/core/viewConfig/removeFieldFromZone.ts    已有的递归 pruneFilterTree(无改动)
+```
+
+---
+
+## 7. Drill-through 单 cell 只带对应 measure
+
+### 7.1 问题
+
+用户右键透视 cell "查看明细",明细 query 把 `viewConfig.values` 里所有 MEASURE 都带过去 — 用户语义是"这个数怎么来的",带 销售成本 这种无关 measure 冗余,且 measure 跨 view 时后端 DetailQuery 直接 406。
+
+### 7.2 修复
+
+`buildDetailQuery` 从 `rowMember`/`colMember` 里识别 `dimension='Measures'` 的 member,拿其 fieldName 拆 base measureName(`splitMeasureFieldName` 处理 @AGG@/@QC@ 后缀),只把匹配的 measure 加进 `detail query.rows`。
+
+### 7.3 边界
+
+| 场景 | 行为 |
+|---|---|
+| 单元格右键(含 Measures member) | **只带该 measure** |
+| Measures member 是编码名(`@AGG@AVG`) | 按 **base measureName** 匹配 |
+| Toolbar"明细"按钮(rowMember/colMember=[]) | 退化带所有 measures(向后兼容) |
+| 纯维度 cell(无 Measures member) | 退化带所有 measures |
+| 同 measureName 多 agg | DetailQuery rows 去重(无聚合,measureName 重复无意义) |
+
+### 7.4 关键文件
+
+```
+src/core/drillThrough/buildDetailQuery.ts     扫 rowMember/colMember 找 Measures member → 限定 measureFieldNames
+```
+

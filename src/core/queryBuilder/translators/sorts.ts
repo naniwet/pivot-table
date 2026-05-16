@@ -29,6 +29,7 @@ export function translateSorts(
       };
     }
     if (s.type === 'ByCustomCaption') {
+      // P5+ 自定义排序 — 后端 DimensionSort + sortBy: ByCustomCaption(用户指定的成员顺序)
       return {
         _enum: 'DimensionSort',
         dimension: s.fieldName,

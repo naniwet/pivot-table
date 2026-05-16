@@ -57,6 +57,7 @@ import { SettingsModal } from '../SettingsModal/SettingsModal.js';
 import { ErrorBoundary } from '../ErrorBoundary/ErrorBoundary.js';
 import { DropZones } from '../DropZones/DropZones.js';
 import { ConditionalFormatModal } from '../ConditionalFormatModal/ConditionalFormatModal.js';
+import { CustomSortOrderModal } from '../CustomSortOrderModal/CustomSortOrderModal.js';
 import { EnumGroupEditor } from '../EnumGroupEditor/EnumGroupEditor.js';
 import { FieldExpressionEditor } from '../FieldExpressionEditor/FieldExpressionEditor.js';
 import { FieldTree } from '../FieldTree/FieldTree.js';
@@ -523,8 +524,10 @@ function PivotTableInner({
     setDraggingFieldType(null);
   };
 
-  const handleRemove = (zone: DropZone, fieldName: string, chipIndex?: number) => {
-    dispatch({ type: 'REMOVE_FIELD', zone, fieldName, chipIndex });
+  const handleRemove = (zone: DropZone, fieldName: string, chipIdx?: number) => {
+    // P5+ chipIdx 给 value zone duplicate chip 精确定位用,reducer 优先按 idx 删;
+    // row/column/filter zone 字段名唯一,chipIdx 在 reducer 内被忽略(走老逻辑)
+    dispatch({ type: 'REMOVE_FIELD', zone, fieldName, chipIdx });
   };
 
   // P5+ FieldTree checkbox 切换逻辑(opt-in:fieldUsage + onFieldToggle 必须配对传给 FieldTree)
@@ -594,6 +597,8 @@ function PivotTableInner({
   const [condFormatTarget, setCondFormatTarget] = useState<
     { measure: string; mode: 'pivot' | 'adhoc' } | null
   >(null);
+  // P5+ 自定义排序 modal:null 关闭,string 是当前编辑的 fieldName
+  const [customSortTarget, setCustomSortTarget] = useState<string | null>(null);
 
   // chip 右键菜单 items(挪到 useTagMenu 里实现)
   const tagMenuItems = useTagMenu({
@@ -603,6 +608,10 @@ function PivotTableInner({
       //   pivot 模式 → 数值区 chip 触发,m 是 measureName
       //   adhoc 模式 → 行区数值 chip 触发,m 是 fieldName
       setCondFormatTarget({ measure: m, mode: isAdhoc ? 'adhoc' : 'pivot' });
+      closeTagMenu();
+    },
+    onOpenCustomSort: (fieldName) => {
+      setCustomSortTarget(fieldName);
       closeTagMenu();
     },
   });
@@ -1456,6 +1465,51 @@ function PivotTableInner({
           onClose={() => setCondFormatTarget(null)}
         />
       )}
+
+      {/* P5+ 自定义排序 Modal — dim chip 右键 "自定义排序…" 触发 */}
+      {customSortTarget !== null && (() => {
+        const fieldName = customSortTarget;
+        const fieldAlias = metaIndex.findByName(fieldName)?.alias ?? fieldName;
+        // 从当前 renderModel.rowHeader 提取该 field 出现的所有 distinct member name
+        // 多层 row 时:用 viewConfig.rows 找该 fieldName 在 row 数组中是第几层,取 fullPath[lvl]
+        // 简化:扫所有 row 的 fullPath,取该 lvl 上的唯一值(保序)
+        const lvl = viewConfig.rows.findIndex((r) => r.fieldName === fieldName);
+        const initialMembers: string[] = [];
+        if (renderModel && lvl >= 0) {
+          const seen = new Set<string>();
+          for (const row of renderModel.rowHeader) {
+            const name = row.fullPath[lvl];
+            if (name && !seen.has(name)) {
+              seen.add(name);
+              initialMembers.push(name);
+            }
+          }
+        }
+        const currentOrder = viewConfig.rowSorts.find(
+          (s): s is Extract<typeof s, { type: 'ByCustomCaption' }> =>
+            s.type === 'ByCustomCaption' && s.fieldName === fieldName,
+        )?.customCaption;
+        return (
+          <CustomSortOrderModal
+            fieldName={fieldName}
+            fieldAlias={fieldAlias}
+            initialMembers={initialMembers}
+            currentOrder={currentOrder}
+            onApply={(newOrder) => {
+              if (newOrder === null) {
+                dispatch({ type: 'REMOVE_CUSTOM_SORT_ORDER', fieldName });
+              } else {
+                dispatch({
+                  type: 'SET_CUSTOM_SORT_ORDER',
+                  fieldName,
+                  customCaption: newOrder,
+                });
+              }
+            }}
+            onClose={() => setCustomSortTarget(null)}
+          />
+        );
+      })()}
 
       {/* P2 自建字段编辑器 modals(calc_measure / calc_column 共用) */}
       {editorOpen?.kind === 'expr' && (

@@ -1,5 +1,5 @@
 /**
- * QueryBuilder 校验规则（参见 prd/phase-p0.md QueryBuilder 校验节）
+ * QueryBuilder 校验规则（参见 docs/prd/phase-p0.md QueryBuilder 校验节）
  *
  * P2 自建字段闭环:viewConfig.customFields 也是合法字段源。row/column/value 引用的
  * fieldName 可以是 metadata 里的字段,**也可以是 customFields 里的 id**

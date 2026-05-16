@@ -10,7 +10,7 @@
  *   而是把度量名直接列在 `query.columns` 数组里（默认度量沿列轴展开）。
  *   P1+ 若引入 MeasureGroupName 占位字段决定度量轴方位，再让 values 改追加 query.rows。
  *
- * **Hierarchy drill**（[ADR-004-finding.md](../../../ADR-004-finding.md) C2）：
+ * **Hierarchy drill**（[docs/adr-004-hierarchy-drill.md](../../../docs/adr-004-hierarchy-drill.md) C2）：
  *   一个 Hierarchy with drillDepth=N → query.rows 含 N 个 level fieldName。
  *
  * **fields 数组**（用户 2026-05-05 联调指出）：P0 输出 `[]`。

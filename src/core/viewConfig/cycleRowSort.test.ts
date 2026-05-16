@@ -171,24 +171,47 @@ describe('cycleRowSort — multi=true (P1.5 多列排序，shift+click)', () => 
   });
 });
 
+// ============================================================
+// P5+ ByCustomCaption 自定义排序顺序
+// ============================================================
 describe('setCustomSortOrder', () => {
   it('adds ByCustomCaption sort when no existing sort for the field', () => {
     const before = buildViewConfig({ rowSorts: [] });
     const after = setCustomSortOrder(before, 'ShipProvince', ['华南', '华北', '华东']);
     expect(after.rowSorts).toEqual([
-      { type: 'ByCustomCaption', fieldName: 'ShipProvince', direction: 'ASC', customCaption: ['华南', '华北', '华东'] },
+      {
+        type: 'ByCustomCaption',
+        fieldName: 'ShipProvince',
+        direction: 'ASC',
+        customCaption: ['华南', '华北', '华东'],
+      },
     ]);
   });
 
   it('replaces existing ByCustomCaption for the same field', () => {
     const before = buildViewConfig({
       rowSorts: [
-        { type: 'ByCustomCaption', fieldName: 'ShipProvince', direction: 'ASC', customCaption: ['华北', '华南'] },
+        {
+          type: 'ByCustomCaption',
+          fieldName: 'ShipProvince',
+          direction: 'ASC',
+          customCaption: ['华北', '华南'],
+        },
       ],
     });
-    const after = setCustomSortOrder(before, 'ShipProvince', ['华东', '华南', '华北'], 'DESC');
+    const after = setCustomSortOrder(
+      before,
+      'ShipProvince',
+      ['华东', '华南', '华北'],
+      'DESC',
+    );
     expect(after.rowSorts).toEqual([
-      { type: 'ByCustomCaption', fieldName: 'ShipProvince', direction: 'DESC', customCaption: ['华东', '华南', '华北'] },
+      {
+        type: 'ByCustomCaption',
+        fieldName: 'ShipProvince',
+        direction: 'DESC',
+        customCaption: ['华东', '华南', '华北'],
+      },
     ]);
   });
 
@@ -199,7 +222,10 @@ describe('setCustomSortOrder', () => {
     const after = setCustomSortOrder(before, 'ShipProvince', ['华南', '华东']);
     expect(after.rowSorts).toHaveLength(2);
     expect(after.rowSorts[0]).toMatchObject({ type: 'ByMeasure' });
-    expect(after.rowSorts[1]).toMatchObject({ type: 'ByCustomCaption', fieldName: 'ShipProvince' });
+    expect(after.rowSorts[1]).toMatchObject({
+      type: 'ByCustomCaption',
+      fieldName: 'ShipProvince',
+    });
   });
 
   it('default direction is ASC', () => {
@@ -220,7 +246,12 @@ describe('removeCustomSortOrder', () => {
   it('removes ByCustomCaption for given field', () => {
     const before = buildViewConfig({
       rowSorts: [
-        { type: 'ByCustomCaption', fieldName: 'ShipProvince', direction: 'ASC', customCaption: ['华南'] },
+        {
+          type: 'ByCustomCaption',
+          fieldName: 'ShipProvince',
+          direction: 'ASC',
+          customCaption: ['华南'],
+        },
       ],
     });
     const after = removeCustomSortOrder(before, 'ShipProvince');
@@ -231,7 +262,12 @@ describe('removeCustomSortOrder', () => {
     const before = buildViewConfig({
       rowSorts: [
         { type: 'ByMeasure', measureName: MEASURE, direction: 'DESC' },
-        { type: 'ByCustomCaption', fieldName: 'Region', direction: 'ASC', customCaption: ['华东'] },
+        {
+          type: 'ByCustomCaption',
+          fieldName: 'Region',
+          direction: 'ASC',
+          customCaption: ['华东'],
+        },
       ],
     });
     const after = removeCustomSortOrder(before, 'Region');

@@ -5,7 +5,7 @@
  *
  * 这里不引 SmartbiClient（避免测试依赖网络）— 直接 mock onQuery 返回观察到的 shape。
  *
- * 限制：仅 flat dimension（无 hierarchy drill）。Hierarchy drill 见 [ADR-004-finding.md](../../../ADR-004-finding.md)。
+ * 限制：仅 flat dimension（无 hierarchy drill）。Hierarchy drill 见 [docs/adr-004-hierarchy-drill.md](../../../docs/adr-004-hierarchy-drill.md)。
  */
 import { render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';

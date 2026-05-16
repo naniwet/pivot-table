@@ -3,7 +3,7 @@
  *
  * 职责：把 viewConfig.rows[] / viewConfig.columns[] 翻译为 query.rows / query.columns。
  *
- * **Hierarchy 处理**（[ADR-004-finding.md](../../../../ADR-004-finding.md) C2 策略）：
+ * **Hierarchy 处理**（[docs/adr-004-hierarchy-drill.md](../../../../docs/adr-004-hierarchy-drill.md) C2 策略）：
  *   一个 Hierarchy with drillDepth=N → 输出 N 个 level fieldName，
  *   即从顶层 level 到第 N 层 level 全部出现在 query.rows 中。
  *   后端按"多 level 笛卡尔积"返回行轴成员（drill 不是 filter，而是字段集变化）。

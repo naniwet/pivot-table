@@ -52,13 +52,15 @@ function getSortFieldName(s: Sort): string {
 }
 
 // ============================================================
-// 自定义排序顺序(ByCustomCaption)
+// 自定义排序顺序(ByCustomCaption)— P5+
 // ============================================================
 
 /**
- * 设置/替换某字段的自定义排序顺序。
- * 已存在同 fieldName 的 ByCustomCaption → 更新 customCaption + 重置为 ASC；
- * 不存在 → 新增一条 ByCustomCaption(默认 ASC — 即按用户指定顺序从小到大)。
+ * 设置 / 替换某字段的自定义排序顺序。
+ * 已存在同 fieldName 的 ByCustomCaption → 更新 customCaption + 重置为传入 direction(默认 ASC);
+ * 不存在 → 新增一条 ByCustomCaption(ASC = 用户指定顺序)。
+ *
+ * 用法:用户在某 dim chip / 列头右键 "自定义排序…" → modal 拖拽成员排序 → 确定 → 调此函数 dispatch SET。
  */
 export function setCustomSortOrder(
   viewConfig: ViewConfig,
@@ -78,9 +80,7 @@ export function setCustomSortOrder(
   return { ...viewConfig, rowSorts: [...viewConfig.rowSorts, newSort] };
 }
 
-/**
- * 移除某字段的自定义排序。
- */
+/** 移除某字段的自定义排序(留其他 sort 不动) */
 export function removeCustomSortOrder(
   viewConfig: ViewConfig,
   fieldName: string,

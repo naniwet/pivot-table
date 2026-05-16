@@ -18,7 +18,11 @@ import type { Dispatch } from 'react';
 import type { DropZone, FieldType } from '../core/dropRules/dropRules.js';
 import { applyDrop } from '../core/viewConfig/applyDrop.js';
 import { getMeasureFieldName as measureFieldNameOf } from '../core/viewConfig/quickCalcs.js';
-import { cycleRowSort } from '../core/viewConfig/cycleRowSort.js';
+import {
+  cycleRowSort,
+  removeCustomSortOrder,
+  setCustomSortOrder,
+} from '../core/viewConfig/cycleRowSort.js';
 import { drillDownHierarchy, drillUpHierarchy } from '../core/viewConfig/drillHierarchy.js';
 import { removeFieldFromZone } from '../core/viewConfig/removeFieldFromZone.js';
 import {
@@ -117,8 +121,13 @@ export type ViewConfigAction =
     }
   | {
       type: 'SET_VALUE_AGGREGATOR';
-      /** 目标 chip 的 encoded fullName(getMeasureFieldName(v)) */
+      /** 目标 chip 的 encoded fullName(getMeasureFieldName(v))— duplicate chip 共享同 chipKey,需配合 chipIdx 精确定位 */
       chipKey: string;
+      /**
+       * P5+ duplicate chip 精确定位:viewConfig.values 里的 idx,优先按 idx 改;
+       * 未传 → fallback 按 chipKey 找第一个 match(向后兼容)
+       */
+      chipIdx?: number;
       /** 新 aggregator;null = 用 metadata 默认 */
       aggregator: import('../types/query.js').Aggregator | null;
       /** value zone 同 measure 完全重复 chip 的精确定位索引 */
@@ -129,9 +138,25 @@ export type ViewConfigAction =
       type: 'SET_QUERY_MODE';
       mode: 'pivot' | 'adhoc';
     }
-  | { type: 'REMOVE_FIELD'; zone: DropZone; fieldName: string; chipIndex?: number }
+  | {
+      type: 'REMOVE_FIELD';
+      zone: DropZone;
+      fieldName: string;
+      /**
+       * P5+ duplicate chip 精确定位:viewConfig.values 里的 idx。
+       * 仅 value zone 用 — duplicate chip 共享同 encoded name,不传则删所有同 name 的(老语义);
+       * row/column/filter zone 字段名唯一,无须 chipIdx
+       */
+      chipIdx?: number;
+    }
   | { type: 'MOVE_FIELD'; zone: DropZone; fieldName: string; direction: MoveDirection }
-  | { type: 'SET_VALUE_QUICK_CALC'; measureName: string; quickCalc: QuickCalculation | null; chipIndex?: number }
+  | {
+      type: 'SET_VALUE_QUICK_CALC';
+      measureName: string;
+      quickCalc: QuickCalculation | null;
+      /** P5+ duplicate chip 精确定位;同 SET_VALUE_AGGREGATOR.chipIdx */
+      chipIdx?: number;
+    }
   | { type: 'SET_FILTERS'; filters: ClientFilter[] }
   | { type: 'SET_MEASURE_FILTERS'; measureFilters: ClientMeasureFilter[] }
   | { type: 'ADD_CUSTOM_FIELD'; field: CustomField }
@@ -147,6 +172,19 @@ export type ViewConfigAction =
       rule: import('../types/viewConfig.js').ConditionalFormatRule;
     }
   | { type: 'REMOVE_CONDITIONAL_FORMAT'; id: string }
+  /**
+   * P5+ 自定义排序顺序(ByCustomCaption)— 用户在 dim chip 右键 "自定义排序…" 配的成员顺序。
+   * customCaption[i] 为 ASC 时显示顺序的第 i 位;DESC 反序。
+   * 已存在同 fieldName 的 ByCustomCaption → 替换;不存在 → 新增。
+   */
+  | {
+      type: 'SET_CUSTOM_SORT_ORDER';
+      fieldName: string;
+      customCaption: string[];
+      direction?: 'ASC' | 'DESC';
+    }
+  /** 移除某字段的自定义排序(其他 sort 保留) */
+  | { type: 'REMOVE_CUSTOM_SORT_ORDER'; fieldName: string }
   | { type: 'SET'; viewConfig: ViewConfig };
 
 /**
@@ -236,17 +274,21 @@ export function viewConfigReducer(
       };
     }
     case 'SET_VALUE_AGGREGATOR': {
-      // chipIndex 提供 → 精确定位(同 measure + 同 agg/qc 的完全重复 chip)
-      const idx =
-        action.chipIndex !== undefined &&
-        action.chipIndex >= 0 &&
-        action.chipIndex < state.values.length
-          ? action.chipIndex
-          : state.values.findIndex(
-              (v) =>
-                // chipKey 是 encoded full name 含 aggregator/quickCalc 信息
-                measureFieldNameOf(v) === action.chipKey,
-            );
+      // 替换指定 chip 的 aggregator。
+      // 优先按 chipIdx 精确定位(duplicate chip 共享同 chipKey,findIndex 撞了会改错 chip);
+      // 未传 chipIdx → fallback 按 chipKey 找第一个 match(向后兼容老调用 / 单 chip 场景)
+      let idx: number;
+      if (
+        action.chipIdx !== undefined &&
+        action.chipIdx >= 0 &&
+        action.chipIdx < state.values.length &&
+        // 防御:idx 处 chip 必须确实是这个 chipKey,否则 chipIdx 跟 state 不同步(stale)
+        measureFieldNameOf(state.values[action.chipIdx]!) === action.chipKey
+      ) {
+        idx = action.chipIdx;
+      } else {
+        idx = state.values.findIndex((v) => measureFieldNameOf(v) === action.chipKey);
+      }
       if (idx < 0) return state;
       const next = state.values.slice();
       next[idx] = { ...next[idx]!, aggregator: action.aggregator };
@@ -365,11 +407,11 @@ export function viewConfigReducer(
         { sourceZone: action.sourceZone, chipKey: action.chipKey, chipIndex: action.chipIndex },
       );
     case 'REMOVE_FIELD':
-      return removeFieldFromZone(state, action.zone, action.fieldName, action.chipIndex);
+      return removeFieldFromZone(state, action.zone, action.fieldName, action.chipIdx);
     case 'MOVE_FIELD':
       return moveFieldInZone(state, action.zone, action.fieldName, action.direction);
     case 'SET_VALUE_QUICK_CALC':
-      return setValueQuickCalc(state, action.measureName, action.quickCalc, action.chipIndex);
+      return setValueQuickCalc(state, action.measureName, action.quickCalc, action.chipIdx);
     case 'SET_FILTERS':
       return setFilters(state, action.filters);
     case 'SET_MEASURE_FILTERS':
@@ -409,6 +451,15 @@ export function viewConfigReducer(
         pageState: { ...state.pageState, conditionalFormats: next },
       };
     }
+    case 'SET_CUSTOM_SORT_ORDER':
+      return setCustomSortOrder(
+        state,
+        action.fieldName,
+        action.customCaption,
+        action.direction,
+      );
+    case 'REMOVE_CUSTOM_SORT_ORDER':
+      return removeCustomSortOrder(state, action.fieldName);
     case 'SET':
       return action.viewConfig;
   }

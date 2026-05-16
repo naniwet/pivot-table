@@ -34,6 +34,7 @@ import { buildMetadataIndex } from '../metadata/fieldIndex.js';
 import { buildPageSettings } from '../queryBuilder/translators/pageSettings.js';
 import { translateRows, translateColumns } from '../queryBuilder/translators/rows.js';
 import { translateDimensionFilter } from '../queryBuilder/translators/dimensionFilter.js';
+import { splitMeasureFieldName } from '../viewConfig/quickCalcs.js';
 
 /** PRD §3.3:明细行数上限,超过提示用户加筛选 */
 export const DRILL_THROUGH_MAX_ROWS = 10000;
@@ -84,30 +85,34 @@ export function buildDetailQuery(input: BuildDetailQueryInput): Query {
   const dimRows = viewConfig.rows.filter((r) => r.type !== 'MeasureGroupName');
   const dimCols = viewConfig.columns.filter((c) => c.type !== 'MeasureGroupName');
 
-  // 度量字段:单元格右键时只用当前度量(colMember/rowMember 中 dimension=Measures 的 member);
-  // Toolbar"明细"按钮(rowMember/colMember 都为空)→ 带全部普通 Measure
-  const measureFieldNames: string[] = [];
-  if (rowMember.length > 0 || colMember.length > 0) {
-    // 找度量 member 的 fieldName(通常在 colMember 里,行轴放度量时在 rowMember)
-    const measureMember = [...rowMember, ...colMember].find(
-      (m) => m.dimension === MEASURES_DIMENSION,
-    );
-    if (measureMember) {
-      const node = index.findByName(measureMember.fieldName);
-      if (node?.type === 'MEASURE') {
-        measureFieldNames.push(measureMember.fieldName);
-      }
+  // 度量字段:只带普通 Measure(每行一个数值),跳过 CalcMeasure(聚合表达式无明细概念)
+  // UserCalcMeasure(自建)已被 canViewDetail 整体挡住,不会到这里
+  //
+  // P5+ 单 cell drill-through 时只带该 cell 对应的 measure:
+  //   - 用户语义:"我点的这个销售额=2,454,777 怎么来的" — 带 销售成本 这些无关 measure 没意义
+  //   - 而且如果两个 measure 来自不同 view,后端 DetailQuery 还会报错
+  //   - cell 的 colMember/rowMember 里如果有 dimension='Measures' member,则其 fieldName(去掉
+  //     @AGG@/@QC@ 后缀)就是该 cell 对应的 measure
+  //   - Toolbar"明细"按钮(无 cell context)→ rowMember/colMember=[] → 没 Measure member
+  //     → 退化为"带所有 measures"(向后兼容)
+  let cellMeasureBaseName: string | null = null;
+  for (const m of [...rowMember, ...colMember]) {
+    if (m.dimension === MEASURES_DIMENSION) {
+      cellMeasureBaseName = splitMeasureFieldName(m.fieldName).measureName;
+      break; // 一个 cell tuple 只对应一个 measure,首个即可
     }
   }
-  // 无度量 member(工具栏入口或无度量轴)→ fallback 到全部普通 Measure
-  if (measureFieldNames.length === 0) {
-    for (const v of viewConfig.values) {
-      const node = index.findByName(v.measureName);
-      if (node?.type === 'MEASURE') {
-        measureFieldNames.push(v.measureName);
-      }
-      // node.type === 'CALC_MEASURE' → 跳过;node 不存在(custom)→ 也跳过
-    }
+  const measureFieldNames: string[] = [];
+  const seenMeasures = new Set<string>();
+  for (const v of viewConfig.values) {
+    const node = index.findByName(v.measureName);
+    if (node?.type !== 'MEASURE') continue;
+    // CalcMeasure / 自建字段 跳过
+    if (cellMeasureBaseName !== null && v.measureName !== cellMeasureBaseName) continue;
+    // 同 measureName 不同 agg/qc 可能在 values 出现多次 — DetailQuery 不关心聚合,dedup
+    if (seenMeasures.has(v.measureName)) continue;
+    seenMeasures.add(v.measureName);
+    measureFieldNames.push(v.measureName);
   }
 
   const detailRows = [

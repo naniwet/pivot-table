@@ -90,7 +90,12 @@ export interface DropZonesProps {
     /** P3+ chip 内部拖动用:sourceZone + chipKey 用于精确 reorder */
     extra?: { sourceZone?: DropZone; chipKey?: string; chipIndex?: number },
   ) => void;
-  onRemove: (zone: DropZone, fieldName: string, chipIndex?: number) => void;
+  /**
+   * × 删除单 chip 回调。第 3 参数 chipIdx 是 chip 在该 zone 数组的 index —
+   * P5+ duplicate chip 精确定位用(value zone 重复时 encoded name 撞,需 idx 区分)。
+   * 老 caller 不用 chipIdx,默认按 fieldName 删第一个 match(向后兼容)。
+   */
+  onRemove: (zone: DropZone, fieldName: string, chipIdx?: number) => void;
   /** P1.0：设置 measure 的 quickCalc（来自数值区 tag 上的菜单） */
   onSetQuickCalc?: (measureName: string, quickCalc: QuickCalculation | null) => void;
   /**
@@ -111,6 +116,12 @@ export interface DropZonesProps {
     zone: DropZone;
     fieldName: string;
     fieldType: FieldType;
+    /**
+     * P5+ duplicate chip 精确定位:chip 在该 zone 数组中的 index。
+     * 用户场景:value 区两个完全同 measure+agg+qc 的 chip 共享同 encoded name,
+     * 仅靠 fieldName 找会撞 → reducer 拿 chipIdx 精确定位用户点的那个 chip
+     */
+    chipIdx: number;
     x: number;
     y: number;
     chipIndex?: number;
@@ -292,7 +303,12 @@ function ZoneView({
           </span>
         )}
         {fields.map((f, i) => (
-          <Fragment key={`${zone}-${f.name}-${i}`}>
+          // React key:用 (encoded name, idx) tuple 防碰撞。
+          // value zone 重复 chip 共享 encoded name(getMeasureFieldName 同算),
+          // 单 f.name 当 key 会让 React 复用旧 DOM → 新 chip 继承旧 chip 的状态 +
+          //   data-duplicate 也错位不应用 → 视觉上是"幽灵蓝色 chip" 而非红色 duplicate。
+          // 业务标识 data-field-tag={f.name} 不变(duplicate 在模型里就是"看得见但不可单独操作")
+          <Fragment key={`${f.name}::${i}`}>
             <span
               className="dropzone__drop-indicator"
               data-testid={`drop-indicator-${zone}-${i}`}
@@ -341,6 +357,7 @@ function ZoneView({
                   zone,
                   fieldName: f.name,
                   fieldType: f.fieldType,
+                  chipIdx: i,
                   x: e.clientX,
                   y: e.clientY,
                   chipIndex: f.index,
@@ -397,7 +414,7 @@ function ZoneView({
                 className="dropzone__remove"
                 data-testid={`remove-${zone}-${f.name}`}
                 aria-label={`移除 ${f.alias}`}
-                onClick={() => onRemove(zone, f.name, f.index)}
+                onClick={() => onRemove(zone, f.name, i)}
               >
                 ×
               </button>

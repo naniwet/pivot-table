@@ -18,12 +18,22 @@ export function setValueQuickCalc(
   viewConfig: ViewConfig,
   measureName: string,
   quickCalc: QuickCalculation | null,
-  /** value zone 同 measure 完全重复 chip 的精确定位索引 */
-  chipIndex?: number,
+  /**
+   * P5+ duplicate chip 精确定位:viewConfig.values 里的 idx,优先按 idx 改;
+   * 未传 → fallback 按 encoded name / measureName 找第一个 match(向后兼容)
+   */
+  chipIdx?: number,
 ): ViewConfig {
   let idx: number;
-  if (chipIndex !== undefined && chipIndex >= 0 && chipIndex < viewConfig.values.length) {
-    idx = chipIndex;
+  if (
+    chipIdx !== undefined &&
+    chipIdx >= 0 &&
+    chipIdx < viewConfig.values.length &&
+    // 防御:idx 处 chip 必须 encoded name 跟 measureName 一致,否则 chipIdx 跟 state 不同步
+    (getMeasureFieldName(viewConfig.values[chipIdx]!) === measureName ||
+      viewConfig.values[chipIdx]!.measureName === measureName)
+  ) {
+    idx = chipIdx;
   } else {
     // 优先按 encoded full name 精确匹配
     idx = viewConfig.values.findIndex((v) => getMeasureFieldName(v) === measureName);

@@ -6,7 +6,7 @@
  */
 import { renderHook } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { buildDimensionRow, buildValueField, buildViewConfig } from '../fixtures/builders.js';
+import { buildDimensionRow, buildViewConfig } from '../fixtures/builders.js';
 import { orderModelMetadata } from '../fixtures/metadata/orderModel.js';
 import { useTreeQueries } from './useTreeQueries.js';
 

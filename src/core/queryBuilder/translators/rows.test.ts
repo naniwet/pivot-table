@@ -2,7 +2,7 @@
  * translateRows 测试
  *
  * 翻译 viewConfig.rows → query.rows
- * Hierarchy → 按 drillDepth 输出多个 level fieldName（[ADR-004-finding.md](../../../../ADR-004-finding.md) C2）
+ * Hierarchy → 按 drillDepth 输出多个 level fieldName（[docs/adr-004-hierarchy-drill.md](../../../../docs/adr-004-hierarchy-drill.md) C2）
  * 其他字段 → 原样输出 fieldName
  */
 
