@@ -25,11 +25,13 @@ export interface SmartbiConfig {
   baseUrl: string;
   token: string;
   modelId: string;
+  /** 选模型时记下的展示名(aliasPath),只为 UI 显示,不参与请求 */
+  modelName?: string;
 }
 
 type DraftConfig = Omit<SmartbiConfig, 'id'>;
 
-const EMPTY_DRAFT: DraftConfig = { name: '', baseUrl: '', token: '', modelId: '' };
+const EMPTY_DRAFT: DraftConfig = { name: '', baseUrl: '', token: '', modelId: '', modelName: '' };
 
 interface Props {
   configs: SmartbiConfig[];
@@ -103,7 +105,13 @@ export function SmartbiConfigManager({
 
   function openEdit(c: SmartbiConfig) {
     setEditingId(c.id);
-    setDraft({ name: c.name, baseUrl: c.baseUrl, token: c.token, modelId: c.modelId });
+    setDraft({
+      name: c.name,
+      baseUrl: c.baseUrl,
+      token: c.token,
+      modelId: c.modelId,
+      modelName: c.modelName ?? '',
+    });
     setError(null);
     setPopoverOpen(false);
     setFormOpen(true);
@@ -256,6 +264,11 @@ export function SmartbiConfigManager({
           {active && (
             <div className="config-popover__footer" title={active.baseUrl}>
               连到 → {active.baseUrl}
+              {active.modelName && (
+                <div className="config-popover__model" title={active.modelId}>
+                  📊 {active.modelName}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -310,15 +323,25 @@ export function SmartbiConfigManager({
                 data-testid="form-token"
               />
             </FormField>
-            <FormField label="数据模型 ID">
+            <FormField
+              label="数据模型 ID"
+              hint="可留空 — 保存后在主界面顶部的 📊 按钮里浏览资源目录选模型"
+            >
               <input
                 type="text"
                 className="config-modal__input"
                 value={draft.modelId}
-                onChange={(e) => setDraft((d) => ({ ...d, modelId: e.target.value }))}
-                placeholder="I8a8aa3ed018ff..."
+                onChange={(e) =>
+                  setDraft((d) => ({ ...d, modelId: e.target.value, modelName: '' }))
+                }
+                placeholder="(可选)I8a8aa3ed018ff..."
                 data-testid="form-modelid"
               />
+              {draft.modelName && (
+                <div className="config-modal__model-name" data-testid="form-modelname">
+                  当前已选:{draft.modelName}
+                </div>
+              )}
             </FormField>
             <div className="config-modal__footer">
               <button

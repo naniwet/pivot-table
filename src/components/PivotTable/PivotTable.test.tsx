@@ -838,6 +838,38 @@ describe('PivotTable — 图表模式 (P3+)', () => {
     // 表格的 column-header 不应存在
     expect(screen.queryByTestId(`column-header-${MEASURE}`)).not.toBeInTheDocument();
   });
+
+  // 回归测试 2026-05-16:图表模式下行分页栏不应该出现(图表无 row/column 概念)
+  // (列轴分页另有触发条件:cols > pageSize,这里默认 dataset 列数少不会触发,只测行分页)
+  it('图表模式下不渲染行分页栏', async () => {
+    render(
+      <PivotTable
+        metadata={orderModelMetadata}
+        defaultValue={{
+          ...initialViewConfig,
+          pageState: { ...initialViewConfig.pageState, displayMode: 'chart' },
+        }}
+        onQuery={vi.fn().mockResolvedValue(cs)}
+      />,
+    );
+    await waitFor(() => expect(screen.getByTestId('chart-renderer')).toBeInTheDocument());
+    // Pagination 用 testid 'pagination-prev'(行分页)/ 'pagination-column-prev'(列分页)
+    expect(screen.queryByTestId('pagination-prev')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('pagination-column-prev')).not.toBeInTheDocument();
+  });
+
+  // 回归测试:表格模式分页栏正常出现(对照组,确认 chart 模式 skip 不会误伤表格模式)
+  it('表格模式行分页栏正常显示(对照)', async () => {
+    render(
+      <PivotTable
+        metadata={orderModelMetadata}
+        defaultValue={initialViewConfig}
+        onQuery={vi.fn().mockResolvedValue(cs)}
+      />,
+    );
+    await waitFor(() => expect(screen.getByText('江苏')).toBeInTheDocument());
+    expect(screen.getByTestId('pagination-prev')).toBeInTheDocument();
+  });
 });
 
 describe('PivotTable — controlled mode', () => {
@@ -1405,6 +1437,33 @@ describe('PivotTable — 翻页 UI 模式(分页器 / 滚动加载)', () => {
       expect(sentinel).toBeInTheDocument();
       expect(sentinel!.getAttribute('data-state')).toBe('done');
       expect(sentinel!.textContent).toContain('已全部加载');
+    });
+  });
+
+  // 2026-05-16:浏览态沉浸视图 — 隐藏"已全部加载"系统提示(sentinel div 保留)
+  it('浏览态 + 已全部加载 → sentinel 存在但文案为空(不显示"已全部加载")', async () => {
+    const cs = makeCellSet(
+      [{ name: '江苏', uniqueName: ['江苏'], level: 'ShipProvince2' }],
+      [1000],
+    );
+    const user = userEvent.setup();
+    render(
+      <PivotTable
+        metadata={orderModelMetadata}
+        defaultValue={makeViewConfigWithData()}
+        onQuery={vi.fn().mockResolvedValue(cs)}
+      />,
+    );
+    await waitFor(() => expect(screen.getByText('江苏')).toBeInTheDocument());
+    // 进入浏览态(toolbar 上的"浏览"按钮)
+    await user.click(screen.getByTestId('toolbar-browse'));
+
+    await waitFor(() => {
+      const sentinel = screen.queryByTestId('pivot-scroll-sentinel');
+      expect(sentinel).toBeInTheDocument();
+      // browseMode 自动切到 scroll 模式;hasMore=false → 应该是 'done',但文案隐藏
+      expect(sentinel!.getAttribute('data-state')).toBe('done');
+      expect(sentinel!.textContent).not.toContain('已全部加载');
     });
   });
 

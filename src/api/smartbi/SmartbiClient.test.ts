@@ -5,7 +5,14 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { Query } from '../../types/query.js';
 
-import { SmartbiClient } from './SmartbiClient.js';
+import {
+  DEFAULT_CATALOG_ACCEPT_TYPES,
+  isCatalogFolder,
+  isCatalogLeaf,
+  PUBLIC_DATASET_ROOT_ID,
+  SmartbiClient,
+  type CatalogNode,
+} from './SmartbiClient.js';
 
 const EMPTY_CELLSET = JSON.stringify({
   rowFields: [],
@@ -135,5 +142,88 @@ describe('SmartbiClient — response unwrapping (best-effort, refine after probe
     const client = new SmartbiClient({ baseUrl: 'http://x', fetch });
     const result = await client.executeQuery({} as Query);
     expect(result).toMatchObject({ rowFields: [] });
+  });
+});
+
+describe('SmartbiClient.fetchCatalogChildren — 资源目录 lazy 树', () => {
+  const SAMPLE_NODES: CatalogNode[] = [
+    {
+      id: 'folder-1',
+      name: 'FoodWare',
+      alias: 'FoodWare',
+      desc: '',
+      type: 'DEFAULT_TREENODE',
+      children: null,
+      pid: null,
+      aliasPath: '数据集\\FoodWare',
+    },
+    {
+      id: 'model-1',
+      name: 'foodware_0613',
+      alias: 'foodware_0613',
+      desc: '',
+      type: 'AUGMENTED_DATASET',
+      children: null,
+      pid: 'folder-1',
+      aliasPath: '数据集\\FoodWare\\foodware_0613',
+    },
+  ];
+
+  it('POST /api/catalogs/withPathChildren 携带 id + acceptTypes', async () => {
+    const fetch = makeFetch(JSON.stringify(SAMPLE_NODES));
+    const client = new SmartbiClient({ baseUrl: 'http://x/smartbi', fetch });
+    const result = await client.fetchCatalogChildren(PUBLIC_DATASET_ROOT_ID);
+
+    const [url, init] = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0]!;
+    expect(url).toBe('http://x/smartbi/api/catalogs/withPathChildren');
+    const i = init as RequestInit;
+    expect(i.method).toBe('POST');
+    const body = JSON.parse(i.body as string);
+    expect(body.id).toBe('PUBLIC_DATASET');
+    expect(body.acceptTypes).toEqual([...DEFAULT_CATALOG_ACCEPT_TYPES]);
+    expect(body.ignoreNoResourceFolder).toBe(false);
+    expect(result).toEqual(SAMPLE_NODES);
+  });
+
+  it('支持自定义 acceptTypes(过滤资源类型)', async () => {
+    const fetch = makeFetch(JSON.stringify(SAMPLE_NODES));
+    const client = new SmartbiClient({ baseUrl: 'http://x', fetch });
+    await client.fetchCatalogChildren('folder-1', undefined, ['AUGMENTED_DATASET']);
+
+    const body = JSON.parse(
+      ((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0]![1] as RequestInit).body as string,
+    );
+    expect(body.acceptTypes).toEqual(['AUGMENTED_DATASET']);
+  });
+
+  it('非数组响应 → throw(防御:接口返回 envelope / 错误时不让上层拿到坏值)', async () => {
+    const fetch = makeFetch(JSON.stringify({ success: false }));
+    const client = new SmartbiClient({ baseUrl: 'http://x', fetch });
+    await expect(client.fetchCatalogChildren('x')).rejects.toThrow(/expected array/);
+  });
+});
+
+describe('isCatalogLeaf / isCatalogFolder', () => {
+  const node = (type: string): CatalogNode => ({
+    id: 'x', name: 'x', alias: 'x', desc: '', type, children: null, pid: null, aliasPath: '',
+  });
+
+  it('AUGMENTED_DATASET / MT_MODEL / TABULAR_DATASET → leaf(可选模型)', () => {
+    expect(isCatalogLeaf(node('AUGMENTED_DATASET'))).toBe(true);
+    expect(isCatalogLeaf(node('MT_MODEL'))).toBe(true);
+    expect(isCatalogLeaf(node('TABULAR_DATASET'))).toBe(true);
+    expect(isCatalogLeaf(node('TABULAR_DATASET_METRICS_SET'))).toBe(true);
+  });
+
+  it('DEFAULT_TREENODE / *_FOLDER → folder(可展开)', () => {
+    expect(isCatalogFolder(node('DEFAULT_TREENODE'))).toBe(true);
+    expect(isCatalogFolder(node('SELF_TREENODE'))).toBe(true);
+    expect(isCatalogFolder(node('TABULAR_DATASET_METRICS_SET_FOLDER'))).toBe(true);
+  });
+
+  it('leaf 跟 folder 互补 — 任何 type 二者恰一', () => {
+    for (const t of ['AUGMENTED_DATASET', 'DEFAULT_TREENODE', 'UNKNOWN_TYPE']) {
+      expect(isCatalogLeaf(node(t)) !== isCatalogFolder(node(t))).toBe(true);
+    }
   });
 });

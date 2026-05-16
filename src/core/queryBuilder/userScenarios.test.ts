@@ -429,32 +429,40 @@ describe('用户业务场景:翻译正确性回归', () => {
       expect(serialized).toContain('GlobalRankDescending');
     });
 
-    // G5 补充:GroupPercent(占分组%— schema 已有,刚刚补入 P1_QUICK_CALCS UI 列表)
-    it('G5c: 占分组 % (GroupPercent — 即"省在所属区域内的占比")', () => {
+    // G5 补充:占分组 % — 用裸字符串 'GroupPercent'(2026-05-16 真实接口验证 ✓)
+    // 实测带 basic 的 RowGroupPercent 后端转译路径有 bug 不计算
+    it('G5c: 占分组 % (GroupPercent 裸字符串 — 即"省在所属区域内的占比")', () => {
       const vc = buildViewConfig({
         rows: [{ fieldName: PROVINCE, type: 'Dimension' }],
-        values: [buildValueField({ measureName: SALES, quickCalc: { _enum: 'GroupPercent' } })],
+        values: [
+          buildValueField({ measureName: SALES, quickCalc: 'GroupPercent' }),
+        ],
       });
       const q = buildQuery(vc, orderModelMetadata, defaultPageState);
       expect(q.columns).toEqual([`${SALES}@QC@GroupPercent`]);
-      expect((q.fields[0] as any).quickCalc).toEqual({ _enum: 'GroupPercent' });
+      expect((q.fields[0] as any).quickCalc).toBe('GroupPercent');
     });
 
-    // G5 补充:分组排名(GroupRank — schema 已有,刚刚补入 P1_QUICK_CALCS)
-    it('G5d: 分组排名 (GroupRankDescending — 即"省在所属区域内的排名")', () => {
+    // G5 补充:分组排名 — 用裸字符串(2026-05-16 真实接口验证 ✓)
+    // 实测 RowGroupRank+sort 对象形式 → 后端转译 DataDimensionRank fields:[] 不计算
+    it('G5d: 分组排名降序 (GroupRankDescending 裸字符串)', () => {
       const vc = buildViewConfig({
         rows: [{ fieldName: PROVINCE, type: 'Dimension' }],
-        values: [buildValueField({ measureName: SALES, quickCalc: { _enum: 'GroupRankDescending' } })],
+        values: [
+          buildValueField({ measureName: SALES, quickCalc: 'GroupRankDescending' }),
+        ],
       });
       const q = buildQuery(vc, orderModelMetadata, defaultPageState);
       expect(q.columns).toEqual([`${SALES}@QC@GroupRankDescending`]);
-      expect((q.fields[0] as any).quickCalc).toEqual({ _enum: 'GroupRankDescending' });
+      expect((q.fields[0] as any).quickCalc).toBe('GroupRankDescending');
     });
 
-    it('G5e: 分组排名升序 (GroupRankAscending)', () => {
+    it('G5e: 分组排名升序 (GroupRankAscending 裸字符串)', () => {
       const vc = buildViewConfig({
         rows: [{ fieldName: PROVINCE, type: 'Dimension' }],
-        values: [buildValueField({ measureName: SALES, quickCalc: { _enum: 'GroupRankAscending' } })],
+        values: [
+          buildValueField({ measureName: SALES, quickCalc: 'GroupRankAscending' }),
+        ],
       });
       const q = buildQuery(vc, orderModelMetadata, defaultPageState);
       expect(q.columns).toEqual([`${SALES}@QC@GroupRankAscending`]);

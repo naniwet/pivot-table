@@ -161,6 +161,8 @@ describe('buildQuery', () => {
     });
 
     it('同 measure + aggregator + quickCalc 组合 — 分隔符顺序 @AGG@<A>@QC@<E>', () => {
+      // 2026-05-16:viewConfig 里可以传对象 `{_enum:'X'}`,但 buildQuery 出口处 normalize
+      // 成字符串 'X'(后端 buggy 转译路径修复)。所以 fields[].quickCalc === 'RowGlobalPercent'
       const viewConfig = buildViewConfig({
         rows: [buildHierarchyRow()],
         values: [
@@ -176,7 +178,7 @@ describe('buildQuery', () => {
           name: expectedName,
           measure: FIELD_IDS.salesMeasure,
           aggregator: 'AVG',
-          quickCalc: { _enum: 'RowGlobalPercent' },
+          quickCalc: 'RowGlobalPercent', // collapse: {_enum:'X'} → 'X'
         },
       ]);
     });

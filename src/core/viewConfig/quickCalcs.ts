@@ -28,73 +28,68 @@ export interface QuickCalcOption {
   requiresTimeAxis?: boolean;
 }
 
+/**
+ * P1 快速计算 — 2026-05-16 用真实接口逐一回测后,只保留**实测 work** 的选项。
+ *
+ * Wire format 重要事实(用户答疑 + 真实接口验证):
+ *   - 简单 _enum 用**裸字符串**,不要包成 `{_enum: 'X'}`(否则后端转译到错路径,数据不算)
+ *   - 带参数(time intelligence)用 `{_enum, ...params}` 对象形式
+ *
+ * 暂时未暴露(后端实施 bug,wire 怎么发都返回原值):
+ *   - 占行总计 % (RowGlobalPercent)
+ *   - 占列总计 % (ColumnGlobalPercent)
+ *   - 占总计 %   (TotalPercent)
+ *   - 累计值     (CumulativeValue — 默认参数 stub 也不可用)
+ *   — 后端修复后,把对应注释解开即可
+ */
 export const P1_QUICK_CALCS: QuickCalcOption[] = [
-  {
-    label: '占行总计 %',
-    enumName: 'RowGlobalPercent',
-    defaultPayload: { _enum: 'RowGlobalPercent' },
-  },
-  {
-    label: '占列总计 %',
-    enumName: 'ColumnGlobalPercent',
-    defaultPayload: { _enum: 'ColumnGlobalPercent' },
-  },
-  {
-    label: '占总计 %',
-    enumName: 'TotalPercent',
-    defaultPayload: { _enum: 'TotalPercent' },
-  },
   {
     label: '占分组 %',
     enumName: 'GroupPercent',
-    defaultPayload: { _enum: 'GroupPercent' },
+    defaultPayload: 'GroupPercent',
+  },
+  {
+    label: '占总计 %',
+    enumName: 'GlobalPercent',
+    defaultPayload: 'GlobalPercent',
   },
   {
     label: '排名（从大到小）',
     enumName: 'GlobalRankDescending',
-    defaultPayload: { _enum: 'GlobalRankDescending' },
+    defaultPayload: 'GlobalRankDescending',
   },
   {
     label: '排名（从小到大）',
     enumName: 'GlobalRankAscending',
-    defaultPayload: { _enum: 'GlobalRankAscending' },
+    defaultPayload: 'GlobalRankAscending',
   },
   {
     label: '分组排名（从大到小）',
     enumName: 'GroupRankDescending',
-    defaultPayload: { _enum: 'GroupRankDescending' },
+    defaultPayload: 'GroupRankDescending',
   },
   {
     label: '分组排名（从小到大）',
     enumName: 'GroupRankAscending',
-    defaultPayload: { _enum: 'GroupRankAscending' },
-  },
-  {
-    label: '累计值',
-    enumName: 'CumulativeValue',
-    // CumulativeValue 实际需要 dateDimension/dateLevel/offset；P1.0 用空 stub，
-    // 待 FilterPanel 之类的配置 UI 补齐参数后再用
-    defaultPayload: {
-      _enum: 'CumulativeValue',
-      dateDimension: '',
-      dateLevel: '',
-      offset: 0,
-    } as QuickCalculation,
+    defaultPayload: 'GroupRankAscending',
   },
 ];
 
 /**
- * P2 时间智能（4 个）— 都依赖时间维度（dateDimension/dateLevel），由 detectTimeAxis 推导
- * offset 默认 1（同期/同比的"前 1 个周期"）
+ * P2 时间智能（5 个）— 都依赖时间维度（dateDimension/dateLevel），由 detectTimeAxis 推导
+ *
+ * offset 语义:
+ *   - 同期 / 上期 / 环比 → 默认 1(前 1 个周期)
+ *   - 累计值              → 默认 0(在 dateLevel 边界重置,如按 Year reset 的 cumulative)
  */
-function makeTimePayload(enumName: string) {
+function makeTimePayload(enumName: string, offset = 1) {
   return ({ timeAxis }: { timeAxis: TimeAxisInfo | null }): QuickCalculation | null => {
     if (!timeAxis) return null;
     return {
       _enum: enumName,
       dateDimension: timeAxis.dateDimension,
       dateLevel: timeAxis.dateLevel,
-      offset: 1,
+      offset,
     } as QuickCalculation;
   };
 }
@@ -112,6 +107,15 @@ export const P2_TIME_QUICK_CALCS: QuickCalcOption[] = [
     enumName: 'SamePeriodRatioIncrease',
     defaultPayload: { _enum: 'SamePeriodRatioIncrease' } as QuickCalculation,
     buildPayload: makeTimePayload('SamePeriodRatioIncrease'),
+    requiresTimeAxis: true,
+  },
+  {
+    // 累计值 — 实测后端要求 dateDimension/dateLevel/offset,定位为 P2 时间智能
+    // offset=0:在 dateLevel 边界重置(如行轴 Year+Quarter,按 Year 累计 4 个季度)
+    label: '累计值',
+    enumName: 'CumulativeValue',
+    defaultPayload: { _enum: 'CumulativeValue' } as QuickCalculation,
+    buildPayload: makeTimePayload('CumulativeValue', 0),
     requiresTimeAxis: true,
   },
   {
@@ -155,10 +159,8 @@ export function getValueQuickCalcLabel(
 ): string | null {
   const v = values.find((x) => x.measureName === measureName);
   if (!v?.quickCalc) return null;
-  const qc = v.quickCalc;
-  if (typeof qc !== 'object' || !('_enum' in qc)) return null;
-  const enumName = (qc as { _enum: string })._enum;
-  return findQuickCalcOption(enumName)?.label ?? null;
+  const key = quickCalcKey(v.quickCalc);
+  return key ? findQuickCalcOption(key)?.label ?? null : null;
 }
 
 /**
@@ -191,6 +193,56 @@ const QUICK_CALC_NAME_SEPARATOR = '@QC@';
 const AGGREGATOR_NAME_SEPARATOR = '@AGG@';
 
 /**
+ * 算出一个 QuickCalculation payload 的合成识别 key — 用于:
+ *   1. @QC@ 后缀(getMeasureFieldName)
+ *   2. 选项表 enumName 反查(findQuickCalcOption)
+ *
+ *   - 简单字符串形式('GroupPercent')→ 返回字符串本身
+ *   - 对象 _enum(time intelligence 如 SamePeriodValue)→ 返回 _enum
+ *   - 非法 → 返回 null
+ *
+ * 不变量:同一 QuickCalculation quickCalcKey 必须稳定(纯函数)。
+ */
+export function quickCalcKey(qc: QuickCalculation | null | undefined): string | null {
+  if (qc == null) return null;
+  if (typeof qc === 'string') return qc || null;
+  if (typeof qc === 'object' && '_enum' in qc) {
+    const base = (qc as { _enum: string })._enum;
+    return base || null;
+  }
+  return null;
+}
+
+/**
+ * 把 QuickCalculation 转成 backend wire format(只在 buildQuery 出口处用):
+ *
+ *   - 字符串       → 原样('GroupPercent')
+ *   - 单 _enum 对象 `{_enum: 'X'}` → 字符串 'X'(防御 stale 数据 / 误传对象)
+ *   - 多字段对象    → 原样(time intelligence 等带参数的)
+ *
+ * 关键不变量:`{_enum: 'GroupPercent'}` 跟 `'GroupPercent'` 语义等价,但后端实测
+ * 只接受字符串形式;对象形式会被转译成 DataDimensionPercent/Rank 且 fields 错填,
+ * quickCalc 实际不计算(2026-05-16 真实接口验证)。
+ *
+ * 调用点限定:仅在 buildQuery 出口处用,viewConfig.values[].quickCalc 内部表示
+ * 不强制(union 接受两种)。
+ */
+export function normalizeQuickCalcWire(
+  qc: QuickCalculation | null | undefined,
+): QuickCalculation | null {
+  if (qc == null) return null;
+  if (typeof qc === 'string') return qc;
+  if (typeof qc === 'object' && '_enum' in qc) {
+    const keys = Object.keys(qc);
+    // 只有 _enum 一个字段 → collapse 成字符串(后端 buggy 转译路径修复)
+    // 注:TS 字面值 union 只覆盖白名单中的 _enum,任意 _enum 字符串需要 cast
+    if (keys.length === 1) return (qc as { _enum: string })._enum as QuickCalculation;
+    return qc;
+  }
+  return null;
+}
+
+/**
  * 计算 query.fields[].name(给后端 cellSet 列别名用)。
  *
  *   - 无 quickCalc + 无 aggregator → 直接返回 measureName
@@ -210,10 +262,10 @@ export function getMeasureFieldName(v: {
 }): string {
   let name = v.measureName;
   if (v.aggregator) name = `${name}${AGGREGATOR_NAME_SEPARATOR}${v.aggregator}`;
-  if (v.quickCalc && typeof v.quickCalc === 'object' && '_enum' in v.quickCalc) {
-    const enumName = (v.quickCalc as { _enum: string })._enum;
-    name = `${name}${QUICK_CALC_NAME_SEPARATOR}${enumName}`;
-  }
+  // 带 sort 的 rank 变体(RowGroupRank ASC vs DESC)需要在后缀里编码,否则两个 ValueField
+  // 产生同名列,buildQuery 去重会丢一条。quickCalcKey 统一处理。
+  const qcKey = quickCalcKey(v.quickCalc);
+  if (qcKey) name = `${name}${QUICK_CALC_NAME_SEPARATOR}${qcKey}`;
   return name;
 }
 

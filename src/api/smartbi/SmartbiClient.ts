@@ -27,6 +27,60 @@ import { smartbiErrorFromResponse } from '../../types/error.js';
 import type { Metadata } from '../../types/metadata.js';
 import type { Query } from '../../types/query.js';
 
+/**
+ * Smartbi 资源目录树节点(/api/catalogs/withPathChildren 返回元素)。
+ *   - 文件夹:type='DEFAULT_TREENODE' / 'SELF_TREENODE' / *_FOLDER,children=null 表示未展开
+ *   - 数据模型(叶子):type='AUGMENTED_DATASET' / 'MT_MODEL' / 'TABULAR_DATASET' 等,id 即 modelId
+ *
+ * children 一律 null — 接口是 lazy 的,每个文件夹要再调一次接口拿子节点。
+ */
+export interface CatalogNode {
+  id: string;
+  name: string;
+  alias: string;
+  desc: string;
+  type: string;
+  order?: number;
+  children: CatalogNode[] | null;
+  pid: string | null;
+  aliasPath: string;
+  extended?: string | null;
+}
+
+/** 数据模型根 id — fetchCatalogChildren 的起点 */
+export const PUBLIC_DATASET_ROOT_ID = 'PUBLIC_DATASET';
+
+/**
+ * fetchCatalogChildren 接受的资源类型集合 — 把文件夹 + 各类"模型/数据集"都拉出来,
+ * 用户在 picker 里看完整目录就行,选叶子时再过滤(isCatalogLeaf 判断)。
+ */
+export const DEFAULT_CATALOG_ACCEPT_TYPES: readonly string[] = [
+  'DEFAULT_TREENODE',
+  'SELF_TREENODE',
+  'AUGMENTED_DATASET',
+  'MT_MODELS',
+  'MT_MODEL',
+  'MT_DATAMODELS',
+  'TABULAR_DATASET',
+  'TABULAR_DATASET_METRICS_SET',
+  'TABULAR_DATASET_METRICS_SET_FOLDER',
+];
+
+/** 节点是不是"可选的数据模型叶子"(对应 ModelPicker 的选中目标) */
+export function isCatalogLeaf(node: CatalogNode): boolean {
+  return (
+    node.type === 'AUGMENTED_DATASET' ||
+    node.type === 'MT_MODEL' ||
+    node.type === 'TABULAR_DATASET' ||
+    node.type === 'TABULAR_DATASET_METRICS_SET'
+  );
+}
+
+/** 节点是不是"可展开文件夹" — 跟 isCatalogLeaf 互补,其他 type 当 unknown,UI 渲染时按文件夹处理 */
+export function isCatalogFolder(node: CatalogNode): boolean {
+  return !isCatalogLeaf(node);
+}
+
 export interface SmartbiAuth {
   /** JWT token (e.g. `st_eyJ...`)；以 `Authorization: Bearer <token>` 发送 */
   token?: string;
@@ -125,6 +179,45 @@ export class SmartbiClient {
    */
   asOnQuery(): (q: Query, ctx: { signal: AbortSignal }) => Promise<CellSet> {
     return (q, ctx) => this.executeQuery(q, ctx);
+  }
+
+  /**
+   * 拉资源目录的子节点 — 树是 lazy 的:每个文件夹要按 id 单独 call 一次。
+   *
+   * 用法:
+   *   const root = await client.fetchCatalogChildren(PUBLIC_DATASET_ROOT_ID);
+   *   const folderChildren = await client.fetchCatalogChildren(folder.id);
+   *
+   * acceptTypes 默认拉所有"文件夹 + 各类模型/数据集",ModelPicker 渲染时用
+   * `isCatalogLeaf` 判断哪些可选。调用方有特殊需求(只要 AUGMENTED_DATASET)再传过滤。
+   */
+  async fetchCatalogChildren(
+    catalogId: string,
+    ctx?: { signal?: AbortSignal },
+    acceptTypes: readonly string[] = DEFAULT_CATALOG_ACCEPT_TYPES,
+  ): Promise<CatalogNode[]> {
+    const url = `${this.baseUrl}/api/catalogs/withPathChildren`;
+    const res = await this.fetchFn(
+      url,
+      this.buildInit({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json;charset=UTF-8' },
+        body: JSON.stringify({
+          id: catalogId,
+          acceptTypes: [...acceptTypes],
+          ignoreNoResourceFolder: false,
+        }),
+        signal: ctx?.signal,
+      }),
+    );
+    if (!res.ok) throw await this.errorFromResponse(res, 'fetchCatalogChildren');
+    const json = (await res.json()) as unknown;
+    if (!Array.isArray(json)) {
+      throw new Error(
+        `[smartbi:fetchCatalogChildren] expected array response, got ${typeof json}`,
+      );
+    }
+    return json as CatalogNode[];
   }
 
   private buildInit(extra: RequestInit): RequestInit {

@@ -80,7 +80,7 @@ app.get('/api/configs', (_req, res) => {
 });
 
 app.post('/api/configs', (req, res) => {
-  const { name, baseUrl, token, modelId } = req.body ?? {};
+  const { name, baseUrl, token, modelId, modelName } = req.body ?? {};
   if (!name || typeof name !== 'string') {
     return res.status(400).json({ error: 'name (string) is required' });
   }
@@ -93,6 +93,8 @@ app.post('/api/configs', (req, res) => {
     baseUrl: normalizeBaseUrl(baseUrl),
     token: typeof token === 'string' ? token : '',
     modelId: typeof modelId === 'string' ? modelId : '',
+    // modelName 仅 UI 展示用(选模型时记下的 aliasPath),后端调用不参与
+    modelName: typeof modelName === 'string' ? modelName : '',
   };
   const configs = loadConfigs();
   configs.push(config);
@@ -106,13 +108,14 @@ app.put('/api/configs/:id', (req, res) => {
   if (idx < 0) return res.status(404).json({ error: 'config not found' });
 
   const current = configs[idx];
-  const { name, baseUrl, token, modelId } = req.body ?? {};
+  const { name, baseUrl, token, modelId, modelName } = req.body ?? {};
   const updated = {
     id: current.id, // id 不可改
     name: typeof name === 'string' ? name.trim() : current.name,
     baseUrl: typeof baseUrl === 'string' ? normalizeBaseUrl(baseUrl) : current.baseUrl,
     token: typeof token === 'string' ? token : current.token,
     modelId: typeof modelId === 'string' ? modelId : current.modelId,
+    modelName: typeof modelName === 'string' ? modelName : (current.modelName ?? ''),
   };
   configs[idx] = updated;
   saveConfigs(configs);

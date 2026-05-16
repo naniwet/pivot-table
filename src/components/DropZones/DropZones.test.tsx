@@ -72,6 +72,51 @@ describe('DropZones — rendering', () => {
     const valueZone = screen.getByTestId('zone-value');
     expect(within(valueZone).getByText('销售额')).toBeInTheDocument();
   });
+
+  // 2026-05-16:回归测试 — quickCalc 字符串形态(GroupRankDescending)的 chip
+  // label 必须显示"字段名（快速计算名）",跟汇总依据格式一致。
+  // 之前 bug:代码用 `quickCalc._enum` 访问,字符串形态拿不到,后缀丢失。
+  it('value chip 带 quickCalc(字符串形态)→ label 显示"销售额（分组排名（从大到小））"', () => {
+    const vc = buildViewConfig({
+      values: [
+        buildValueField({ measureName: FIELD_IDS.salesMeasure, quickCalc: 'GroupRankDescending' }),
+      ],
+    });
+    render(
+      <DropZones
+        viewConfig={vc}
+        metadata={orderModelMetadata}
+        onDrop={vi.fn()}
+        onRemove={vi.fn()}
+      />,
+    );
+    const valueZone = screen.getByTestId('zone-value');
+    // 全角括号 + quickCalc label 拼在 measure alias 后(formatMeasureDisplayLabel)
+    expect(within(valueZone).getByText(/销售额（分组排名(?:（|（).*）/)).toBeInTheDocument();
+  });
+
+  it('value chip 带 quickCalc + aggregator → label 显示"销售额（平均值, 占分组 %）"', () => {
+    const vc = buildViewConfig({
+      values: [
+        buildValueField({
+          measureName: FIELD_IDS.salesMeasure,
+          aggregator: 'AVG',
+          quickCalc: 'GroupPercent',
+        }),
+      ],
+    });
+    render(
+      <DropZones
+        viewConfig={vc}
+        metadata={orderModelMetadata}
+        onDrop={vi.fn()}
+        onRemove={vi.fn()}
+      />,
+    );
+    const valueZone = screen.getByTestId('zone-value');
+    // 顺序固定:aggregator 在前,quickCalc 在后
+    expect(within(valueZone).getByText('销售额（平均值, 占分组 %）')).toBeInTheDocument();
+  });
 });
 
 describe('DropZones — drag highlighting', () => {

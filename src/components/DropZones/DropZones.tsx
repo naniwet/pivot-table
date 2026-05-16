@@ -32,6 +32,7 @@ import {
   findQuickCalcOption,
   formatMeasureDisplayLabel,
   getMeasureFieldName,
+  quickCalcKey,
 } from '../../core/viewConfig/quickCalcs.js';
 import {
   MEASURE_AXIS_FIELD_NAME,
@@ -520,9 +521,10 @@ export function DropZones({
   //   显示别名用 baseAlias + (aggregator label, quickCalc label) 后缀。
   //   跨 zone 拖动用 base measureName(其他 zone 不认 encoded 名)。
   const valueFields: FieldTag[] = viewConfig.values.map((v, i) => {
-    const qcLabel = v.quickCalc
-      ? (findQuickCalcOption((v.quickCalc as { _enum: string })._enum)?.label ?? null)
-      : null;
+    // quickCalc 现在两种形态:'GroupRankDescending' 字符串 / { _enum:'SamePeriodValue',...} 对象
+    // 用 quickCalcKey 统一取识别 key,再反查选项 label,跟"汇总依据"label 一致格式
+    const qcKey = quickCalcKey(v.quickCalc);
+    const qcLabel = qcKey ? (findQuickCalcOption(qcKey)?.label ?? null) : null;
     const aggLabel = v.aggregator ? getAggregatorLabel(v.aggregator) : null;
     return {
       index: i,

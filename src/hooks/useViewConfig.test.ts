@@ -950,6 +950,79 @@ describe('useViewConfig — duplicate chip 精确定位 (chipIdx)', () => {
 });
 
 // ============================================================
+// P5+ aggregator ↔ quickCalc 互斥 — 切一个清另一个,语义无歧义
+// ============================================================
+describe('useViewConfig — aggregator / quickCalc 互斥', () => {
+  it('SET_VALUE_AGGREGATOR(非 null)→ 清掉已有的 quickCalc', () => {
+    const { result } = renderHook(() =>
+      useViewConfig({
+        defaultValue: buildViewConfig({
+          values: [
+            buildValueField({ measureName: MEASURE, quickCalc: { _enum: 'RowGlobalPercent' } }),
+          ],
+        }),
+        metadata: orderModelMetadata,
+      }),
+    );
+    act(() =>
+      result.current[1]({
+        type: 'SET_VALUE_AGGREGATOR',
+        chipKey: `${MEASURE}@QC@RowGlobalPercent`, // encoded name 含 @QC@ 后缀
+        aggregator: 'AVG',
+      }),
+    );
+    expect(result.current[0].values[0]!.aggregator).toBe('AVG');
+    expect(result.current[0].values[0]!.quickCalc).toBeNull();
+  });
+
+  it('SET_VALUE_AGGREGATOR(null = 清聚合 override)→ 不影响 quickCalc', () => {
+    const { result } = renderHook(() =>
+      useViewConfig({
+        defaultValue: buildViewConfig({
+          values: [
+            buildValueField({
+              measureName: MEASURE,
+              aggregator: 'AVG',
+              quickCalc: { _enum: 'RowGlobalPercent' },
+            }),
+          ],
+        }),
+        metadata: orderModelMetadata,
+      }),
+    );
+    act(() =>
+      result.current[1]({
+        type: 'SET_VALUE_AGGREGATOR',
+        chipKey: `${MEASURE}@AGG@AVG@QC@RowGlobalPercent`,
+        aggregator: null,
+      }),
+    );
+    expect(result.current[0].values[0]!.aggregator).toBeNull();
+    expect(result.current[0].values[0]!.quickCalc).toEqual({ _enum: 'RowGlobalPercent' });
+  });
+
+  it('SET_VALUE_QUICK_CALC(非 null)→ 清掉已有的 aggregator(reducer 走 setValueQuickCalc)', () => {
+    const { result } = renderHook(() =>
+      useViewConfig({
+        defaultValue: buildViewConfig({
+          values: [buildValueField({ measureName: MEASURE, aggregator: 'AVG' })],
+        }),
+        metadata: orderModelMetadata,
+      }),
+    );
+    act(() =>
+      result.current[1]({
+        type: 'SET_VALUE_QUICK_CALC',
+        measureName: `${MEASURE}@AGG@AVG`, // encoded name 含 @AGG@ 后缀
+        quickCalc: { _enum: 'RowGlobalPercent' },
+      }),
+    );
+    expect(result.current[0].values[0]!.quickCalc).toEqual({ _enum: 'RowGlobalPercent' });
+    expect(result.current[0].values[0]!.aggregator).toBeNull();
+  });
+});
+
+// ============================================================
 // P5+ SET_CUSTOM_SORT_ORDER / REMOVE_CUSTOM_SORT_ORDER 自定义排序
 // ============================================================
 describe('useViewConfig — 自定义排序 actions', () => {

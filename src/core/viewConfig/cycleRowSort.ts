@@ -16,13 +16,20 @@ import type { Sort, SortDirection, ViewConfig } from '../../types/viewConfig.js'
 
 export type SortKind = 'ByMeasure' | 'ByDimension';
 
-/** 排序模式：global = ASC/DESC（默认），group = BASC/BDESC（分组内，P2） */
+/**
+ * 排序模式 — **注意命名跟后端语义反了**(历史命名,见 ADR / 2026-05-16 接口实测):
+ *   - 'global' = ASC/DESC = 实际是**分组内**排序(保留 hierarchy,组内按值排)
+ *   - 'group'  = BASC/BDESC = 实际是**全局**排序(打散 hierarchy,全表按值排)
+ *
+ * B 前缀 = Break grouping(打破分组)。改名是大 breaking 变更,留注释提醒。
+ * UI 标签已经在 useTagMenu / useColumnHeaderMenu 修正(按实际行为命名)。
+ */
 export type SortMode = 'global' | 'group';
 
 export interface CycleRowSortOptions {
   /** P1.5：true 时不替换原有 rowSorts，仅在该列上做三态切换 */
   multi?: boolean;
-  /** P2：'global'(ASC/DESC) 或 'group'(BASC/BDESC)；默认 global */
+  /** 见 SortMode 注释:'global'→ASC/DESC(实际分组内),'group'→BASC/BDESC(实际全局) */
   mode?: SortMode;
 }
 

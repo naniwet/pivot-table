@@ -158,7 +158,7 @@
       .pivot-table__panel-title {
         display: flex;
         align-items: center;
-        justify-content: space-between;
+        gap: var(--space-2);
         font-weight: 600;
         font-size: var(--fs-xs);
         color: var(--gray-500);
@@ -167,6 +167,18 @@
         border-bottom: 1px solid var(--gray-200);
         text-transform: uppercase;
         letter-spacing: 0.8px;
+      }
+      .pivot-table__panel-title-text {
+        flex: 0 0 auto;
+      }
+      /* 中间动态插槽 — 撑满剩余空间,把 × 顶到最右 */
+      .pivot-table__panel-title-slot {
+        flex: 1;
+        min-width: 0;
+        text-transform: none;
+        letter-spacing: normal;
+        font-weight: normal;
+        color: var(--gray-700);
       }
       .pivot-table__panel-close {
         flex: 0 0 auto;
@@ -732,6 +744,13 @@
         text-overflow: ellipsis;
         white-space: nowrap;
       }
+      .config-popover__model {
+        margin-top: 2px;
+        color: var(--gray-700);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
 
       /* —— Form modal(新增/编辑)—— */
       .config-modal__backdrop {
@@ -838,6 +857,196 @@
         color: #fff;
       }
       .config-modal__btn--primary:hover:not([disabled]) {
+        background: var(--primary-hover);
+        border-color: var(--primary-hover);
+      }
+
+      /* ── 数据模型行(input + 选择按钮 + 已选名)── */
+      .config-modal__model-row {
+        display: flex;
+        gap: var(--space-2);
+        align-items: stretch;
+      }
+      .config-modal__model-id {
+        flex: 1;
+        min-width: 0;
+        font-family: var(--font-mono, ui-monospace, monospace);
+        font-size: 12px;
+      }
+      .config-modal__model-pick {
+        flex: 0 0 auto;
+        height: auto;
+      }
+      .config-modal__model-name {
+        margin-top: var(--space-1);
+        font-size: 12px;
+        color: var(--gray-600);
+        word-break: break-all;
+      }
+
+      /* ============================================================
+       * ModelPickerButton — 工具栏 trailing 按钮
+       * ============================================================ */
+      .model-picker-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        height: 28px;
+        padding: 0 10px;
+        background: white;
+        border: 1px solid var(--gray-300, #d1d5db);
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 12px;
+        color: var(--gray-700, #374151);
+        max-width: 280px;
+      }
+      .model-picker-btn:hover:not([disabled]) {
+        background: var(--gray-50, #f9fafb);
+        border-color: var(--gray-400, #9ca3af);
+      }
+      .model-picker-btn[disabled] {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      .model-picker-btn__label {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        max-width: 240px;
+      }
+      .model-picker-btn__chevron {
+        color: var(--gray-500, #6b7280);
+        font-size: 10px;
+      }
+
+      /* ============================================================
+       * ModelPicker — 数据模型 picker modal
+       * ============================================================ */
+      .model-picker__overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.45);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1100; /* 在 config-modal(1000) 之上 */
+      }
+      .model-picker__dialog {
+        background: white;
+        border-radius: 8px;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
+        width: 560px;
+        max-width: calc(100vw - 32px);
+        max-height: 80vh;
+        display: flex;
+        flex-direction: column;
+        padding: var(--space-4);
+      }
+      .model-picker__title {
+        margin: 0 0 var(--space-3) 0;
+        font-size: 16px;
+        font-weight: 600;
+      }
+      .model-picker__error {
+        background: #fee;
+        color: #c33;
+        padding: var(--space-2);
+        border-radius: 4px;
+        margin-bottom: var(--space-2);
+        font-size: 12px;
+      }
+      .model-picker__tree {
+        flex: 1;
+        overflow-y: auto;
+        border: 1px solid var(--gray-200);
+        border-radius: 4px;
+        padding: var(--space-1) 0;
+        min-height: 240px;
+      }
+      .model-picker__loading,
+      .model-picker__empty {
+        padding: var(--space-3);
+        color: var(--gray-500);
+        font-size: 12px;
+      }
+      .model-picker__node {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 8px;
+        cursor: pointer;
+        font-size: 13px;
+        user-select: none;
+      }
+      .model-picker__node:hover {
+        background: var(--gray-100, #f5f5f5);
+      }
+      .model-picker__node--selected {
+        background: var(--primary-light, #e0eaff);
+      }
+      .model-picker__node--selected:hover {
+        background: var(--primary-light, #e0eaff);
+      }
+      .model-picker__indicator {
+        width: 12px;
+        color: var(--gray-500);
+        font-size: 10px;
+      }
+      .model-picker__icon {
+        width: 16px;
+        text-align: center;
+      }
+      .model-picker__label {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .model-picker__id {
+        font-family: var(--font-mono, ui-monospace, monospace);
+        font-size: 10px;
+        color: var(--gray-500);
+      }
+      .model-picker__selected {
+        margin-top: var(--space-2);
+        padding: var(--space-2);
+        background: var(--gray-50, #fafafa);
+        border-radius: 4px;
+        font-size: 12px;
+      }
+      .model-picker__selected-path {
+        margin-left: var(--space-1);
+        color: var(--gray-500);
+      }
+      .model-picker__footer {
+        display: flex;
+        justify-content: flex-end;
+        gap: var(--space-2);
+        margin-top: var(--space-3);
+      }
+      .model-picker__btn {
+        padding: 6px 16px;
+        border: 1px solid var(--gray-300);
+        background: white;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 13px;
+      }
+      .model-picker__btn:hover:not([disabled]) {
+        background: var(--gray-50);
+      }
+      .model-picker__btn[disabled] {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      .model-picker__btn--primary {
+        background: var(--primary);
+        border-color: var(--primary);
+        color: white;
+      }
+      .model-picker__btn--primary:hover:not([disabled]) {
         background: var(--primary-hover);
         border-color: var(--primary-hover);
       }

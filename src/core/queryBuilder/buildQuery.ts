@@ -34,7 +34,7 @@ import {
   dedupRowFields,
   dedupValueFields,
 } from '../viewConfig/findDuplicates.js';
-import { getMeasureFieldName } from '../viewConfig/quickCalcs.js';
+import { getMeasureFieldName, normalizeQuickCalcWire } from '../viewConfig/quickCalcs.js';
 
 import { placeMeasureAxis } from './measureAxis.js';
 import { translateDimensionFilter } from './translators/dimensionFilter.js';
@@ -174,7 +174,12 @@ export function buildQuery(rawViewConfig: ViewConfig, metadata: Metadata, pageSt
             measure: v.measureName,
           };
           if (v.aggregator != null) f.aggregator = v.aggregator;
-          if (v.quickCalc != null) f.quickCalc = v.quickCalc;
+          if (v.quickCalc != null) {
+            // wire-format 规则:单 `{_enum:'X'}` 对象要 collapse 成字符串 'X',
+            // 否则后端走 buggy 转译路径不计算 — normalizeQuickCalcWire 防御
+            const wire = normalizeQuickCalcWire(v.quickCalc);
+            if (wire != null) f.quickCalc = wire;
+          }
           return f;
         }),
     ],

@@ -125,6 +125,12 @@ export interface PivotRendererProps {
   hasMore?: boolean;
   /** P5+ 累积加载中(已有数据,正在 fetch 下一页);true 时 sentinel 显示"加载中…" */
   loadingMore?: boolean;
+  /**
+   * 隐藏底部 sentinel 的"已全部加载"文案 — 浏览态用,沉浸视图里所有"系统提示"
+   * 都该消失;sentinel div 本身保留(IntersectionObserver 仍工作,只是 hasMore=false 时静默)。
+   * loading 文案("加载中…")不受影响,等待反馈仍要给。
+   */
+  hideEndOfListMessage?: boolean;
   className?: string;
   style?: CSSProperties;
 }
@@ -358,6 +364,7 @@ export function PivotRenderer({
   onLoadMore,
   hasMore = false,
   loadingMore = false,
+  hideEndOfListMessage = false,
   className,
   style,
 }: PivotRendererProps): ReactNode {
@@ -1337,7 +1344,11 @@ export function PivotRenderer({
           data-testid="pivot-scroll-sentinel"
           data-state={loadingMore ? 'loading' : hasMore ? 'idle' : 'done'}
         >
-          {loadingMore ? '加载中…' : hasMore ? '' : '已全部加载'}
+          {loadingMore
+            ? '加载中…'
+            : hasMore || hideEndOfListMessage
+              ? ''
+              : '已全部加载'}
         </div>
       )}
     </div>

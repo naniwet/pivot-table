@@ -5,7 +5,11 @@
  *
  * 不变量：
  *   - 不存在的 measureName / encoded fieldName → throw（防御）
- *   - quickCalc=null → 清掉之前的 quickCalc
+ *   - quickCalc=null → 清掉之前的 quickCalc(不影响 aggregator)
+ *   - 设置非 null quickCalc → 同时清掉 aggregator override(两者互斥 —
+ *     一个 measure 同时带 AVG 聚合 + 占行总计% 在 UI 语义上含混不清:
+ *     "AVG 后再算占比"还是"先算占比再 AVG"?
+ *     P5 决定:互斥,后设置的覆盖前设置的)
  *
  * P3+ 同 measure 多 ValueField:接受 encoded fieldName(getMeasureFieldName(v))精确匹配单 chip,
  * 退化按 measureName(选 first 命中,兼容老调用方)。
@@ -43,6 +47,10 @@ export function setValueQuickCalc(
     throw new Error(`[setValueQuickCalc] measure "${measureName}" not in values`);
   }
   const nextValues = viewConfig.values.slice();
-  nextValues[idx] = { ...nextValues[idx]!, quickCalc };
+  const prev = nextValues[idx]!;
+  // 设置非 null quickCalc → 同时清 aggregator(互斥);null = 清快速计算 → 不动 aggregator
+  nextValues[idx] = quickCalc != null
+    ? { ...prev, quickCalc, aggregator: null }
+    : { ...prev, quickCalc };
   return { ...viewConfig, values: nextValues };
 }

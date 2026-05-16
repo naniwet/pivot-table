@@ -24,7 +24,12 @@ import type {
   RowHeaderNode,
 } from '../../types/renderModel.js';
 import type { RowField, ViewConfig } from '../../types/viewConfig.js';
-import { findQuickCalcOption, formatMeasureDisplayLabel, splitMeasureFieldName } from '../viewConfig/quickCalcs.js';
+import {
+  findQuickCalcOption,
+  formatMeasureDisplayLabel,
+  quickCalcKey,
+  splitMeasureFieldName,
+} from '../viewConfig/quickCalcs.js';
 import { getAggregatorLabel } from '../viewConfig/aggregators.js';
 import type { Aggregator } from '../../types/query.js';
 
@@ -99,8 +104,9 @@ function labelsFromEncoded(
     if (matches.length === 1) {
       const v = matches[0]!;
       if (!aggLabel && v.aggregator) aggLabel = getAggregatorLabel(v.aggregator);
-      if (!qcLabel && v.quickCalc && typeof v.quickCalc === 'object' && '_enum' in v.quickCalc) {
-        const opt = findQuickCalcOption((v.quickCalc as { _enum: string })._enum);
+      if (!qcLabel && v.quickCalc) {
+        const key = quickCalcKey(v.quickCalc);
+        const opt = key ? findQuickCalcOption(key) : null;
         if (opt) qcLabel = opt.label;
       }
     }

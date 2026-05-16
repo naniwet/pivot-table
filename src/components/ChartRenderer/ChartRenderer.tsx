@@ -36,7 +36,11 @@ export interface ChartRendererProps {
   data: ChartData;
   loading?: boolean;
   error?: Error | null;
-  /** 高度(默认 400px);宽度跟随容器 */
+  /**
+   * 高度:数字 → 像素;字符串 → 透传(e.g. '100%')
+   * 默认 '100%' — 撑满父容器;父级需是 flex/grid item 且给出有限高度。
+   *   PivotTable 把它放 .pivot-table__main(flex column),自己加 flex:1 + minHeight:0 撑满。
+   */
   height?: number | string;
   className?: string;
   style?: CSSProperties;
@@ -46,7 +50,7 @@ export function ChartRenderer({
   data,
   loading = false,
   error = null,
-  height = 400,
+  height = '100%',
   className,
   style,
 }: ChartRendererProps): ReactNode {

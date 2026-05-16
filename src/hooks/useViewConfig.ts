@@ -289,7 +289,11 @@ export function viewConfigReducer(
       }
       if (idx < 0) return state;
       const next = state.values.slice();
-      next[idx] = { ...next[idx]!, aggregator: action.aggregator };
+      // 设置非 null aggregator → 同时清 quickCalc(互斥,见 setValueQuickCalc 的注释);
+      // null = 清 aggregator override → 不动 quickCalc
+      next[idx] = action.aggregator != null
+        ? { ...next[idx]!, aggregator: action.aggregator, quickCalc: null }
+        : { ...next[idx]!, aggregator: action.aggregator };
       return { ...state, values: next };
     }
     case 'SET_QUERY_MODE': {

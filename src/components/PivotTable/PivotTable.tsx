@@ -144,6 +144,11 @@ export interface PivotTableProps {
    * 不传则右侧空,工具栏按钮自然居中。Demo 用此 slot 放 SmartbiConfigManager。
    */
   headerTrailing?: ReactNode;
+  /**
+   * "数据"面板标题旁的动态插槽 — 宿主可放数据模型 picker 等上下文切换 UI。
+   * 不传则只显示"数据" + 关闭按钮。Demo 用此 slot 放 ModelPickerButton。
+   */
+  dataPanelTrailing?: ReactNode;
   className?: string;
   style?: CSSProperties;
 }
@@ -189,6 +194,7 @@ function PivotTableInner({
   freezeHeader,
   freezeRowHeader,
   headerTrailing,
+  dataPanelTrailing,
   className,
   style,
 }: PivotTableProps): ReactNode {
@@ -639,6 +645,7 @@ function PivotTableInner({
   // P5+ 字段级表头右键菜单 items — 抽到 useColumnHeaderMenu hook 实现
   // 适用:adhoc 列头 / pivot corner / pivot 度量列头(都是字段级,只做排序+复制)
   // adhoc 数值列额外渲染"条件格式化…" — hook 内部按 valueType 判断,这里只传 callback
+  // pivot corner 维度字段额外渲染"自定义排序…" — 复用 chip 菜单的同一个 modal
   const columnHeaderMenuItems = useColumnHeaderMenu({
     columnHeaderMenu,
     viewConfig,
@@ -650,6 +657,10 @@ function PivotTableInner({
           setColumnHeaderMenu(null);
         }
       : undefined,
+    onOpenCustomSort: (fieldName) => {
+      setCustomSortTarget(fieldName);
+      setColumnHeaderMenu(null);
+    },
   });
 
   // P5+ adhoc 条件格式化:viewConfig.rows 里哪些 fieldName 是数值类
@@ -911,7 +922,8 @@ function PivotTableInner({
             numericFieldNames={adhocNumericFieldNames}
           />
         ) : viewConfig.pageState.displayMode === 'chart' ? (
-          // P3+ 图表模式:不渲染 PivotRenderer 表格,改用 ChartRenderer
+          // P3+ 图表模式:不渲染 PivotRenderer 表格,改用 ChartRenderer 撑满剩余空间
+          // (.pivot-table__main 是 flex column,flex:1 + minHeight:0 让 chart 吃掉所有可用高度)
           <ChartRenderer
             data={
               renderModel
@@ -923,7 +935,7 @@ function PivotTableInner({
             }
             loading={loading}
             error={error}
-            height={500}
+            style={{ flex: 1, minHeight: 0 }}
           />
         ) : treeModeUsable ? (
           // P5 树状模式:per-branch lazy query;走独立 pipeline 不复用 renderModel
@@ -960,14 +972,17 @@ function PivotTableInner({
             onLoadMore={onLoadMore}
             hasMore={hasMore}
             loadingMore={loadingMore}
+            // 浏览态沉浸视图:隐藏底部"已全部加载"系统提示(loading 文案仍保留作等待反馈)
+            hideEndOfListMessage={browseMode}
             onHeaderContextMenu={handleHeaderContextMenu}
           />
         )}
         {/* P5+ 滚动模式下隐藏底部行分页栏 — 用 isScrollMode 派生(同时覆盖:
             1) 用户在 settings 切到 paginationMode='scroll'
             2) 浏览模式 强制 scroll(viewConfig.paginationMode 不变,但 isScrollMode=true)
-            列轴翻页保留:它的存在条件是"列数 > pageSize",跟分页 UI 偏好正交 */}
-        {!isScrollMode && (
+            列轴翻页保留:它的存在条件是"列数 > pageSize",跟分页 UI 偏好正交
+            chart 模式:无表格行/列概念,两条分页栏都不显示 */}
+        {!isScrollMode && viewConfig.pageState.displayMode !== 'chart' && (
           <Pagination
             axis="row"
             currentPage={viewConfig.pageState.rowPageNo}
@@ -979,15 +994,17 @@ function PivotTableInner({
           />
         )}
         {/* P1.0：列轴翻页（仅当数据列数 > columnPageSize 时显示） */}
-        {renderModel && (renderModel.columnHeader.length > viewConfig.pageState.columnPageSize) && (
-          <Pagination
-            axis="column"
-            currentPage={viewConfig.pageState.columnPageNo}
-            pageSize={viewConfig.pageState.columnPageSize}
-            total={renderModel.columnHeader.length}
-            onPageChange={handleColumnPageChange}
-            onPageSizeChange={handleColumnPageSizeChange}
-          />
+        {viewConfig.pageState.displayMode !== 'chart' &&
+          renderModel &&
+          renderModel.columnHeader.length > viewConfig.pageState.columnPageSize && (
+            <Pagination
+              axis="column"
+              currentPage={viewConfig.pageState.columnPageNo}
+              pageSize={viewConfig.pageState.columnPageSize}
+              total={renderModel.columnHeader.length}
+              onPageChange={handleColumnPageChange}
+              onPageSizeChange={handleColumnPageSizeChange}
+            />
         )}
       </div>
       {/* 设置面板:4 个 dropzone 垂直堆叠 — panelVisibility.fieldPanel=false 或浏览模式下不渲染 */}
@@ -1022,7 +1039,10 @@ function PivotTableInner({
       {panelVisibility.fieldTree && !browseMode && (
       <div className="pivot-table__data">
         <div className="pivot-table__panel-title">
-          <span>数据</span>
+          <span className="pivot-table__panel-title-text">数据</span>
+          {dataPanelTrailing && (
+            <span className="pivot-table__panel-title-slot">{dataPanelTrailing}</span>
+          )}
           <button
             type="button"
             className="pivot-table__panel-close"

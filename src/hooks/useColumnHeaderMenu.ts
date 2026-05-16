@@ -6,11 +6,15 @@
  *   - 透视模式 corner:行头维度名 cell(左上角"省份"等,sortKind='ByDimension')
  *   - 透视模式 列头度量 cell(底层"销售额"等,sortKind='ByMeasure')
  *
- * 菜单项(都不带 prompt;复杂条件让用户去 FilterPanel 树编辑):
- *   - ✓ 升序 / 升序                    (✓ 表示当前是 ASC)
- *   - ✓ 降序 / 降序
+ * 菜单项(跟 useTagMenu 字段 chip 菜单的"排序"子菜单等价 — 表头跟 chip 操作一致):
+ *   - ✓ 升序 / 升序                    (ASC,分组内 — 保留 hierarchy)
+ *   - ✓ 降序 / 降序                    (DESC,分组内)
+ *   - ✓ 全局升序 / 全局升序             (BASC,pivot 模式才显示;打散分组,全表按值排)
+ *   - ✓ 全局降序 / 全局降序             (BDESC)
  *   - 取消排序                          (仅在该字段当前有 sort 时显示)
+ *   - 自定义排序…                       (ByDimension + onOpenCustomSort 传入时)
  *   - separator
+ *   - 条件格式化…                       (adhoc 数值列 + onOpenConditionalFormat)
  *   - 复制字段名
  *
  * 不持有 menu state — caller 控制 setColumnHeaderMenu(null)。
@@ -22,7 +26,7 @@ import type { Dispatch } from 'react';
 import type { ContextMenuItem } from '../components/ContextMenu/ContextMenu.js';
 import { isNumericValueType } from '../core/metadata/fieldDisplayType.js';
 import type { MetadataIndex } from '../core/metadata/fieldIndex.js';
-import type { ViewConfig } from '../types/viewConfig.js';
+import type { Sort, ViewConfig } from '../types/viewConfig.js';
 import type { ViewConfigAction } from './useViewConfig.js';
 
 export interface ColumnHeaderMenuTarget {
@@ -45,35 +49,49 @@ export interface UseColumnHeaderMenuOptions {
    * 传了 callback 才显示,父组件用 callback 打开 ConditionalFormatModal(mode='adhoc')。
    */
   onOpenConditionalFormat?: (fieldName: string) => void;
+  /**
+   * P5+ 维度字段开放"自定义排序…"(同 useTagMenu 的同名项):
+   *   - 仅 ByDimension(adhoc 列头 / pivot corner)+ 传 callback 时显示
+   *   - 父组件用 callback 打开 CustomSortOrderModal
+   */
+  onOpenCustomSort?: (fieldName: string) => void;
 }
 
 /* 数值类 valueType 判定下沉到 core/metadata/fieldDisplayType.isNumericValueType */
 
 export function useColumnHeaderMenu(opts: UseColumnHeaderMenuOptions): ContextMenuItem[] {
-  const { columnHeaderMenu, viewConfig, metaIndex, dispatch, onOpenConditionalFormat } = opts;
+  const {
+    columnHeaderMenu,
+    viewConfig,
+    metaIndex,
+    dispatch,
+    onOpenConditionalFormat,
+    onOpenCustomSort,
+  } = opts;
 
   return useMemo<ContextMenuItem[]>(() => {
     if (!columnHeaderMenu) return [];
     const { fieldName, sortKind } = columnHeaderMenu;
+    // adhoc 模式无 hierarchy → 不显示"全局排序"那两项(BASC/BDESC 后端会降级,UI 也别误导)
+    const isAdhoc = viewConfig.queryMode === 'adhoc';
 
-    // 当前该字段的 sort(若有)— 按 sortKind 区分查找逻辑
-    const sort = viewConfig.rowSorts.find((s) =>
+    // 当前该字段的 sort(若有)— 按 sortKind 区分查找逻辑;也匹配 ByCustomCaption(✓ 显示)
+    const sameFieldSort = (s: Sort) =>
       sortKind === 'ByMeasure'
-        ? s.type === 'ByMeasure' && (s as { measureName: string }).measureName === fieldName
-        : s.type === 'ByDimension' && (s as { fieldName: string }).fieldName === fieldName,
+        ? s.type === 'ByMeasure' && s.measureName === fieldName
+        : (s.type === 'ByDimension' || s.type === 'ByCustomCaption') && s.fieldName === fieldName;
+    const sort = viewConfig.rowSorts.find(sameFieldSort);
+    const dir = sort && sort.type !== 'ByCustomCaption' ? sort.direction : undefined;
+    const currentCustomSort = viewConfig.rowSorts.find(
+      (s): s is Extract<Sort, { type: 'ByCustomCaption' }> =>
+        s.type === 'ByCustomCaption' && s.fieldName === fieldName,
     );
-    const dir = sort?.direction;
 
     // 直接覆盖该字段的 sort(替换或清除),用 SET 一次到位 — 避免 CYCLE_ROW_SORT 多次 dispatch race
-    const setSortDirection = (direction: 'ASC' | 'DESC' | null) => {
-      const sameField = (s: (typeof viewConfig.rowSorts)[number]) =>
-        sortKind === 'ByMeasure'
-          ? s.type === 'ByMeasure' &&
-            (s as { measureName: string }).measureName === fieldName
-          : s.type === 'ByDimension' &&
-            (s as { fieldName: string }).fieldName === fieldName;
-      const without = viewConfig.rowSorts.filter((s) => !sameField(s));
-      const next = direction
+    // 同时清掉同字段的 ByCustomCaption(跟方向排序互斥)
+    const setSortDirection = (direction: 'ASC' | 'DESC' | 'BASC' | 'BDESC' | null) => {
+      const without = viewConfig.rowSorts.filter((s) => !sameFieldSort(s));
+      const next: Sort[] = direction
         ? [
             ...without,
             sortKind === 'ByMeasure'
@@ -95,24 +113,40 @@ export function useColumnHeaderMenu(opts: UseColumnHeaderMenuOptions): ContextMe
       !!onOpenConditionalFormat &&
       sortKind === 'ByDimension' &&
       isNumericValueType(field?.valueType ?? null);
+    // 自定义排序仅维度字段开放(pivot corner)+ callback 传入时
+    const showCustomSort = !!onOpenCustomSort && sortKind === 'ByDimension';
+
+    const sortItem = (
+      label: string,
+      direction: 'ASC' | 'DESC' | 'BASC' | 'BDESC',
+    ): ContextMenuItem => ({
+      key: `sort-${direction}`,
+      label: dir === direction ? `✓ ${label}` : label,
+      onClick: () => setSortDirection(direction),
+    });
 
     return [
-      {
-        key: 'sort-asc',
-        label: dir === 'ASC' ? '✓ 升序' : '升序',
-        onClick: () => setSortDirection('ASC'),
-      },
-      {
-        key: 'sort-desc',
-        label: dir === 'DESC' ? '✓ 降序' : '降序',
-        onClick: () => setSortDirection('DESC'),
-      },
-      ...(sort
+      sortItem('升序', 'ASC'),
+      sortItem('降序', 'DESC'),
+      ...(isAdhoc ? [] : [sortItem('全局升序', 'BASC'), sortItem('全局降序', 'BDESC')]),
+      ...(sort || currentCustomSort
         ? [
             {
               key: 'sort-clear',
               label: '取消排序',
               onClick: () => setSortDirection(null),
+            },
+          ]
+        : []),
+      ...(showCustomSort
+        ? [
+            { key: 'sep-custom', separator: true as const },
+            {
+              key: 'sort-custom',
+              label: currentCustomSort
+                ? `✓ 自定义排序…(${currentCustomSort.customCaption.length} 项)`
+                : '自定义排序…',
+              onClick: () => onOpenCustomSort!(fieldName),
             },
           ]
         : []),
@@ -138,5 +172,5 @@ export function useColumnHeaderMenu(opts: UseColumnHeaderMenuOptions): ContextMe
       },
     ];
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [columnHeaderMenu, viewConfig.rowSorts, metaIndex]);
+  }, [columnHeaderMenu, viewConfig.rowSorts, viewConfig.queryMode, metaIndex]);
 }

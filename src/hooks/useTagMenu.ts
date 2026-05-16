@@ -28,6 +28,7 @@ import {
 import {
   ALL_QUICK_CALCS,
   getMeasureFieldName,
+  quickCalcKey,
   splitMeasureFieldName,
 } from '../core/viewConfig/quickCalcs.js';
 import type { ViewMode } from '../core/viewMode/viewMode.js';
@@ -163,13 +164,18 @@ export function useTagMenu(opts: UseTagMenuOptions): ContextMenuItem[] {
         s.type === 'ByCustomCaption' && s.fieldName === fieldName,
     );
 
+    // 排序方向语义(2026-05-16 真实接口验证,B = Break grouping):
+    //   ASC/DESC   = 分组内排序(保留 hierarchy。如 rows=[Year,Quarter] 按销售额 ASC,
+    //                则 Year 间保留组,组内 Quarter 按值排;不打散 hierarchy)
+    //   BASC/BDESC = 全局排序(打破 hierarchy 完全按 measure 值排,Year 顺序也乱)
+    // 默认"升序/降序"= 分组内(透视表里常用),"全局升序/降序" 显式打破分组
     const sortChildren: ContextMenuItem[] = [
       ...(isTree
         ? []
         : [sortItem('升序', 'ASC'), sortItem('降序', 'DESC')]),
       ...(isAdhoc
         ? []
-        : [sortItem('分组内升序', 'BASC'), sortItem('分组内降序', 'BDESC')]),
+        : [sortItem('全局升序', 'BASC'), sortItem('全局降序', 'BDESC')]),
       {
         key: 'sort-clear',
         label: '取消排序',
@@ -270,10 +276,8 @@ export function useTagMenu(opts: UseTagMenuOptions): ContextMenuItem[] {
               (v) => getMeasureFieldName(v) === fieldName,
             );
       const currentQc = measureField?.quickCalc;
-      const currentQcEnum =
-        currentQc && typeof currentQc === 'object' && '_enum' in currentQc
-          ? (currentQc as { _enum: string })._enum
-          : null;
+      // quickCalc 现在两种形态:字符串(简单)/ 对象(time intelligence);quickCalcKey 统一取识别 key
+      const currentQcEnum = quickCalcKey(currentQc);
       const currentQcDateLevel =
         currentQc && typeof currentQc === 'object' && 'dateLevel' in currentQc
           ? ((currentQc as { dateLevel?: string }).dateLevel ?? null)

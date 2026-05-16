@@ -148,19 +148,38 @@ export type FieldOrNameSet =
   | { _enum: 'Field'; name: string }
   | { _enum: 'NameSet'; name: string };
 
-/** quickCalc 50+ 种枚举的简化建模：P0 不实做，P1+ 按需扩展 */
+/**
+ * quickCalc — 后端约定:
+ *
+ *  ## 简单形式(裸字符串):无参数的 quickCalc 直接用 string,**不要**包成 `{_enum: 'X'}`!
+ *  ```json
+ *  "quickCalc": "GroupRankDescending"      ✓ 工作
+ *  "quickCalc": {"_enum":"GroupRankDescending"}   ✗ 后端 422 或 echo 转译错路径
+ *  ```
+ *  2026-05-16 实测:简单形式用对象包装会被后端转译成 DataDimensionPercent/Rank
+ *  且 fields:[] 是空的,quickCalc 实际不计算 — 数据返回原值。
+ *
+ *  ## 带参数形式(对象):time intelligence + 显式 axis 的用 `{_enum, ...params}`
+ *  ```json
+ *  "quickCalc": {"_enum":"SamePeriodValue","dateDimension":"X","dateLevel":"Y","offset":1}
+ *  ```
+ */
 export type QuickCalculation =
-  | { _enum: 'GlobalPercent' }
-  | { _enum: 'GroupPercent' }
-  | { _enum: 'TotalPercent' }
-  | { _enum: 'ColumnGlobalPercent' }
-  | { _enum: 'RowGlobalPercent' }
-  | { _enum: 'CumulativeValue' }
-  | { _enum: 'GlobalRankAscending' }
-  | { _enum: 'GlobalRankDescending' }
-  | { _enum: 'GroupRankAscending' }
-  | { _enum: 'GroupRankDescending' }
-  // P2 起加时间智能等其他
+  // ─── 简单形式 — 用裸字符串,实测在 backend pivot 上 work ✓
+  | 'GlobalPercent'
+  | 'GroupPercent'
+  | 'GlobalRankAscending'
+  | 'GlobalRankDescending'
+  | 'GroupRankAscending'
+  | 'GroupRankDescending'
+  // ─── 简单形式 — schema 列了但实测后端 *不工作*(echo 转译路径有 bug):
+  //   TotalPercent / RowGlobalPercent / ColumnGlobalPercent
+  //   RowGroupPercent + basic / ColumnGroupPercent + basic
+  //   RowGroupRank/RowGlobalRank/ColumnGroupRank/ColumnGlobalRank/TotalRank + sort
+  // 这些类型字面值不在 union 里,P1_QUICK_CALCS 也不暴露,等后端修复
+  // ─── 带参数形式(time intelligence 等)— 用对象
+  | { _enum: 'CumulativeValue'; dateDimension: string; dateLevel: string; offset: number }
+  // 通用扩展位 — P2 时间智能(SamePeriodValue / PrevPeriodValue 等)走这条
   | { _enum: string; [key: string]: unknown };
 
 export type QueryField =

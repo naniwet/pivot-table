@@ -23,6 +23,8 @@ import {
   formatMeasureDisplayLabel,
   getMeasureFieldName,
   getValueQuickCalcLabel,
+  normalizeQuickCalcWire,
+  quickCalcKey,
   splitMeasureFieldName,
 } from './quickCalcs.js';
 
@@ -32,10 +34,14 @@ const SAMPLE_TIME_AXIS: TimeAxisInfo = {
 } as TimeAxisInfo;
 
 describe('quickCalcs — 选项表(I1)', () => {
-  it('P1 9 个(+GroupPercent +GlobalRankAscending +GroupRankDescending +GroupRankAscending) / P2 4 个 / ALL = 13', () => {
-    expect(P1_QUICK_CALCS).toHaveLength(9);
-    expect(P2_TIME_QUICK_CALCS).toHaveLength(4);
-    expect(ALL_QUICK_CALCS).toHaveLength(13);
+  // 2026-05-16 真实接口验证:
+  //   P1 6 个非时间(裸字符串) — GroupPercent/GlobalPercent + Group/GlobalRank 各 ASC+DESC
+  //   P2 5 个时间智能(对象) — 同期值/同比/上期/环比 + 累计值
+  //   占行总计 % / 占列总计 %:后端实施 bug,暂不暴露
+  it('P1 6 个 / P2 5 个(+ 累计值) / ALL = 11', () => {
+    expect(P1_QUICK_CALCS).toHaveLength(6);
+    expect(P2_TIME_QUICK_CALCS).toHaveLength(5);
+    expect(ALL_QUICK_CALCS).toHaveLength(11);
   });
 
   it('每个选项 enumName 全集唯一(后端 enum 不能重)', () => {
@@ -43,10 +49,12 @@ describe('quickCalcs — 选项表(I1)', () => {
     expect(new Set(enumNames).size).toBe(enumNames.length);
   });
 
-  it('每个选项 label 非空 + defaultPayload 含 _enum 字段', () => {
+  it('每个选项 label 非空 + quickCalcKey(defaultPayload) === enumName', () => {
     for (const q of ALL_QUICK_CALCS) {
       expect(q.label).not.toBe('');
-      expect(q.defaultPayload).toHaveProperty('_enum', q.enumName);
+      // 简单字符串形式:'GroupPercent' === 'GroupPercent'
+      // 对象形式:quickCalcKey({_enum:'SamePeriodValue',...}) === 'SamePeriodValue'
+      expect(quickCalcKey(q.defaultPayload)).toBe(q.enumName);
     }
   });
 
@@ -77,14 +85,22 @@ describe('P2 时间智能 buildPayload(I2)', () => {
     }
   });
 
-  // 不再额外测"4 种 enum 各自正确" — I1 的"每个选项 defaultPayload._enum 等于 enumName"
-  // 已经从结构上钉死,这里只测 buildPayload 行为(timeAxis 填充逻辑)够了。
+  it('CumulativeValue → offset=0(在 dateLevel 边界重置,不同于同期/上期的 offset=1)', () => {
+    const cumul = P2_TIME_QUICK_CALCS.find((q) => q.enumName === 'CumulativeValue')!;
+    const payload = cumul.buildPayload!({ timeAxis: SAMPLE_TIME_AXIS });
+    expect(payload).toEqual({
+      _enum: 'CumulativeValue',
+      dateDimension: 'OrderDate',
+      dateLevel: 'Month',
+      offset: 0,
+    });
+  });
 });
 
 describe('findQuickCalcOption(I3)', () => {
   // findQuickCalcOption 不区分 P1/P2,在 ALL_QUICK_CALCS 一起查;命中 / 未命中 各 1 条够了
   it('命中已知 enum → 返回选项(label 用作 UI 展示)', () => {
-    expect(findQuickCalcOption('RowGlobalPercent')?.label).toBe('占行总计 %');
+    expect(findQuickCalcOption('GroupPercent')?.label).toBe('占分组 %');
   });
 
   it('未知 enum → undefined', () => {
@@ -93,11 +109,11 @@ describe('findQuickCalcOption(I3)', () => {
 });
 
 describe('getValueQuickCalcLabel(I4)', () => {
-  it('values 含 measure 且 quickCalc 命中 → 返回 label', () => {
+  it('values 含 measure 且 quickCalc(裸字符串)命中 → 返回 label', () => {
     const values = [
-      { measureName: '销售额', quickCalc: { _enum: 'RowGlobalPercent' } },
+      { measureName: '销售额', quickCalc: 'GroupPercent' as const },
     ];
-    expect(getValueQuickCalcLabel(values, '销售额')).toBe('占行总计 %');
+    expect(getValueQuickCalcLabel(values, '销售额')).toBe('占分组 %');
   });
 
   it('values 不含 measure → null', () => {
@@ -110,13 +126,13 @@ describe('getValueQuickCalcLabel(I4)', () => {
     ).toBeNull();
   });
 
-  it('quickCalc enum 不在选项表 → null(防御)', () => {
+  it('quickCalc enum(对象形式)不在选项表 → null(防御)', () => {
     const values = [{ measureName: 'x', quickCalc: { _enum: '__bogus__' } as never }];
     expect(getValueQuickCalcLabel(values, 'x')).toBeNull();
   });
 
-  it('quickCalc 不是 object → null', () => {
-    const values = [{ measureName: 'x', quickCalc: 'oops' as never }];
+  it('quickCalc 字符串不在选项表 → null(防御)', () => {
+    const values = [{ measureName: 'x', quickCalc: '__bogus__' as never }];
     expect(getValueQuickCalcLabel(values, 'x')).toBeNull();
   });
 });
@@ -153,13 +169,22 @@ describe('getMeasureFieldName(I6) — 编码', () => {
     expect(getMeasureFieldName({ measureName: '销售额', aggregator: 'AVG' })).toBe('销售额@AGG@AVG');
   });
 
-  it('quickCalc → @QC@<enum> 后缀', () => {
+  it('quickCalc 字符串形式 → @QC@<enum> 后缀', () => {
     expect(
       getMeasureFieldName({
         measureName: '销售额',
-        quickCalc: { _enum: 'RowGlobalPercent' },
+        quickCalc: 'GroupPercent',
       }),
-    ).toBe('销售额@QC@RowGlobalPercent');
+    ).toBe('销售额@QC@GroupPercent');
+  });
+
+  it('quickCalc 对象形式(time intelligence)→ @QC@<_enum> 后缀', () => {
+    expect(
+      getMeasureFieldName({
+        measureName: '销售额',
+        quickCalc: { _enum: 'SamePeriodValue', dateDimension: 'X', dateLevel: 'Y', offset: 1 },
+      }),
+    ).toBe('销售额@QC@SamePeriodValue');
   });
 
   it('两者都有 → 顺序固定 <name>@AGG@<agg>@QC@<enum>', () => {
@@ -222,7 +247,10 @@ describe('编解码 round-trip(I8)— 关键不变量', () => {
   it.each([
     { measureName: '销售额' },
     { measureName: '销售额', aggregator: 'AVG' as const },
-    { measureName: '销售额', quickCalc: { _enum: 'RowGlobalPercent' } as const },
+    // 字符串形式(简单 _enum 的实际 wire format)
+    { measureName: '销售额', quickCalc: 'GroupPercent' as const },
+    { measureName: '销售额', quickCalc: 'GroupRankDescending' as const },
+    // 对象形式(time intelligence 的实际 wire format)
     {
       measureName: '销售额',
       aggregator: 'AVG' as const,
@@ -234,8 +262,34 @@ describe('编解码 round-trip(I8)— 关键不变量', () => {
     const decoded = splitMeasureFieldName(encoded);
     expect(decoded.measureName).toBe(v.measureName);
     expect(decoded.aggregator).toBe(v.aggregator ?? null);
-    expect(decoded.quickCalcEnum).toBe(
-      v.quickCalc && '_enum' in v.quickCalc ? v.quickCalc._enum : null,
-    );
+    // quickCalcEnum = quickCalcKey(v.quickCalc):字符串原样,对象取 _enum
+    expect(decoded.quickCalcEnum).toBe(quickCalcKey(v.quickCalc) ?? null);
+  });
+});
+
+// 2026-05-16 真实接口验证后加 — wire format collapse 规则
+describe('normalizeQuickCalcWire — buildQuery 出口 wire format', () => {
+  it('字符串原样', () => {
+    expect(normalizeQuickCalcWire('GroupPercent')).toBe('GroupPercent');
+  });
+
+  it('单 _enum 对象 collapse 成字符串(防御 stale data / 后端 buggy 转译路径)', () => {
+    expect(normalizeQuickCalcWire({ _enum: 'GroupPercent' })).toBe('GroupPercent');
+    expect(normalizeQuickCalcWire({ _enum: 'GroupRankDescending' })).toBe('GroupRankDescending');
+  });
+
+  it('多字段对象(time intelligence)原样 — 不能 collapse,后端要 dateDimension/dateLevel/offset', () => {
+    const tp = {
+      _enum: 'SamePeriodValue',
+      dateDimension: 'custom-the_date',
+      dateLevel: 'the_date_Year2',
+      offset: 1,
+    } as const;
+    expect(normalizeQuickCalcWire(tp)).toEqual(tp);
+  });
+
+  it('null / undefined → null', () => {
+    expect(normalizeQuickCalcWire(null)).toBeNull();
+    expect(normalizeQuickCalcWire(undefined)).toBeNull();
   });
 });

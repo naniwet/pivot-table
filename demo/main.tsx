@@ -23,6 +23,7 @@ import { SmartbiClient } from '../src/api/smartbi/SmartbiClient.js';
 import { buildMemberQuery } from '../src/core/queryBuilder/buildMemberQuery.js';
 import { buildViewConfig } from '../src/fixtures/builders.js';
 import type { Metadata } from '../src/types/metadata.js';
+import { ModelPickerButton } from './ModelPickerButton.js';
 import { SmartbiConfigManager, type SmartbiConfig } from './SmartbiConfigManager.js';
 
 const ACTIVE_ID_KEY = 'smartbi-active-config-id';
@@ -89,7 +90,21 @@ function App() {
     setLoadError(null);
     client
       .fetchMetadata(activeConfig.modelId)
-      .then(setMetadata)
+      .then((md) => {
+        setMetadata(md);
+        // 老 config 只有 modelId 没 modelName(picker UI 显示"未命名模型"很丑)
+        // → metadata.alias / .name 已经是数据集别名,静默回填一下
+        const friendly = md.alias || md.name;
+        if (friendly && !activeConfig.modelName) {
+          const patched: SmartbiConfig = { ...activeConfig, modelName: friendly };
+          setConfigs((cs) => cs.map((c) => (c.id === activeConfig.id ? patched : c)));
+          fetch(`/api/configs/${activeConfig.id}`, {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(patched),
+          }).catch((e) => console.warn('[modelName backfill] PUT failed (ignored)', e));
+        }
+      })
       .catch((e) => setLoadError(e instanceof Error ? e : new Error(String(e))));
   }, [client, activeConfig?.modelId]);
 
@@ -106,6 +121,31 @@ function App() {
     return Array.from(set);
   };
 
+  // 切模型 → PUT /api/configs/:id 持久化 modelId+modelName,主程序自动重拉 metadata
+  // (依赖链:configs state 变 → activeConfig 重算 → useEffect 依赖 modelId 变 → fetchMetadata)
+  async function handleModelPick(model: { id: string; name: string; aliasPath: string }) {
+    if (!activeConfig) return;
+    const next: SmartbiConfig = {
+      ...activeConfig,
+      modelId: model.id,
+      modelName: model.aliasPath || model.name,
+    };
+    // 乐观更新:先改本地 state,后端 PUT 失败再回滚
+    const before = configs;
+    setConfigs((cs) => cs.map((c) => (c.id === activeConfig.id ? next : c)));
+    try {
+      const res = await fetch(`/api/configs/${activeConfig.id}`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(next),
+      });
+      if (!res.ok) throw new Error(`PUT /api/configs/${activeConfig.id} ${res.status}`);
+    } catch (e) {
+      console.error('[ModelPicker] save failed, rolling back', e);
+      setConfigs(before);
+    }
+  }
+
   const configManager = (
     <SmartbiConfigManager
       configs={configs}
@@ -114,6 +154,17 @@ function App() {
       onConfigsChange={setConfigs}
     />
   );
+
+  // 数据模型 picker 按钮 — 跟 configManager 并排放在 trailing 槽
+  const modelPickerButton = (
+    <ModelPickerButton
+      client={client}
+      currentModelId={activeConfig?.modelId ?? ''}
+      currentModelName={activeConfig?.modelName}
+      onPick={handleModelPick}
+    />
+  );
+
 
   // 主路径:数据齐全 → 渲染 PivotTable,配置切换器进它的 toolbar leading 槽
   const ready = configsLoaded && activeConfig && client && metadata && !loadError;
@@ -127,17 +178,24 @@ function App() {
         onQuery={client.asOnQuery()}
         loadMembers={loadMembers}
         headerTrailing={configManager}
+        dataPanelTrailing={modelPickerButton}
       />
     );
   }
 
-  // Fallback 路径:数据未齐 → 自己渲一个最小工具栏(只放配置切换器)+ 状态消息
+  // Fallback 路径:数据未齐 → 自己渲一个最小工具栏(放配置切换器)+ 状态消息
+  // 此时还没 ready,数据面板不渲染,modelPickerButton 暂时显示在 trailing 槽给用户操作
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
       <div className="toolbar">
         <div className="toolbar__leading" />
         <div className="toolbar__center" />
-        <div className="toolbar__trailing">{configManager}</div>
+        <div className="toolbar__trailing">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {modelPickerButton}
+            {configManager}
+          </div>
+        </div>
       </div>
       <div style={{ flex: 1, minHeight: 0 }}>{renderFallbackBody()}</div>
     </div>
@@ -167,8 +225,10 @@ function App() {
     if (!activeConfig.modelId) {
       return (
         <Hint>
-          配置 <strong>{activeConfig.name}</strong> 缺少"数据模型 ID"。点顶部"🌐 ⌄" → ✎
-          编辑补上。
+          配置 <strong>{activeConfig.name}</strong> 还没选数据模型。
+          <p style={{ color: '#6b7280', fontSize: 13, marginTop: 8 }}>
+            点顶部"📊 选择数据模型…"按钮浏览资源目录并选一个。
+          </p>
         </Hint>
       );
     }
