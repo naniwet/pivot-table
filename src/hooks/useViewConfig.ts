@@ -18,7 +18,11 @@ import type { Dispatch } from 'react';
 import type { DropZone, FieldType } from '../core/dropRules/dropRules.js';
 import { applyDrop } from '../core/viewConfig/applyDrop.js';
 import { getMeasureFieldName as measureFieldNameOf } from '../core/viewConfig/quickCalcs.js';
-import { cycleRowSort } from '../core/viewConfig/cycleRowSort.js';
+import {
+  cycleRowSort,
+  removeCustomSortOrder,
+  setCustomSortOrder,
+} from '../core/viewConfig/cycleRowSort.js';
 import { drillDownHierarchy, drillUpHierarchy } from '../core/viewConfig/drillHierarchy.js';
 import { removeFieldFromZone } from '../core/viewConfig/removeFieldFromZone.js';
 import {
@@ -165,6 +169,19 @@ export type ViewConfigAction =
       rule: import('../types/viewConfig.js').ConditionalFormatRule;
     }
   | { type: 'REMOVE_CONDITIONAL_FORMAT'; id: string }
+  /**
+   * P5+ 自定义排序顺序(ByCustomCaption)— 用户在 dim chip 右键 "自定义排序…" 配的成员顺序。
+   * customCaption[i] 为 ASC 时显示顺序的第 i 位;DESC 反序。
+   * 已存在同 fieldName 的 ByCustomCaption → 替换;不存在 → 新增。
+   */
+  | {
+      type: 'SET_CUSTOM_SORT_ORDER';
+      fieldName: string;
+      customCaption: string[];
+      direction?: 'ASC' | 'DESC';
+    }
+  /** 移除某字段的自定义排序(其他 sort 保留) */
+  | { type: 'REMOVE_CUSTOM_SORT_ORDER'; fieldName: string }
   | { type: 'SET'; viewConfig: ViewConfig };
 
 /**
@@ -431,6 +448,15 @@ export function viewConfigReducer(
         pageState: { ...state.pageState, conditionalFormats: next },
       };
     }
+    case 'SET_CUSTOM_SORT_ORDER':
+      return setCustomSortOrder(
+        state,
+        action.fieldName,
+        action.customCaption,
+        action.direction,
+      );
+    case 'REMOVE_CUSTOM_SORT_ORDER':
+      return removeCustomSortOrder(state, action.fieldName);
     case 'SET':
       return action.viewConfig;
   }

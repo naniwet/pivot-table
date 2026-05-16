@@ -373,3 +373,129 @@ describe('useTagMenu — 合计/小计 仅在透视(isMatrixView)下渲染', () 
     expect(labels.some((l) => typeof l === 'string' && l.includes('显示小计'))).toBe(false);
   });
 });
+
+describe('useTagMenu — 自定义排序…(P5+)', () => {
+  function getSortSubmenu(items: ReturnType<typeof useTagMenu>): ReturnType<typeof useTagMenu> {
+    const sortItem = items.find((i) => i.key === 'sort');
+    return (sortItem?.children ?? []) as ReturnType<typeof useTagMenu>;
+  }
+
+  it('row 区 Dimension chip + 传 onOpenCustomSort → 出现"自定义排序…"', () => {
+    const cb = vi.fn();
+    const target: TagMenuTarget = {
+      zone: 'row',
+      fieldName: 'ShipProvince',
+      fieldType: 'Dimension',
+      x: 0,
+      y: 0,
+    };
+    const { result } = renderHook(() =>
+      useTagMenu({
+        ...makeOpts(target, {
+          rows: [{ fieldName: 'ShipProvince', type: 'Dimension' }],
+        }),
+        onOpenCustomSort: cb,
+      }),
+    );
+    const labels = getSortSubmenu(result.current).map((i) => i.label ?? '');
+    expect(labels.some((l) => typeof l === 'string' && l.includes('自定义排序'))).toBe(true);
+  });
+
+  it('Measure chip(value 区)→ 不出"自定义排序"', () => {
+    const cb = vi.fn();
+    const target: TagMenuTarget = {
+      zone: 'value',
+      fieldName: 'sales',
+      fieldType: 'Measure',
+      x: 0,
+      y: 0,
+    };
+    const { result } = renderHook(() =>
+      useTagMenu({
+        ...makeOpts(target, {
+          values: [{ measureName: 'sales', aggregator: null, quickCalc: null }],
+        }),
+        onOpenCustomSort: cb,
+      }),
+    );
+    const labels = getSortSubmenu(result.current).map((i) => i.label ?? '');
+    expect(labels.some((l) => typeof l === 'string' && l.includes('自定义排序'))).toBe(false);
+  });
+
+  it('Σ 度量名称 chip → 不出"自定义排序"', () => {
+    const cb = vi.fn();
+    const target: TagMenuTarget = {
+      zone: 'column',
+      fieldName: '__measure_axis__',
+      fieldType: 'MeasureGroupName',
+      x: 0,
+      y: 0,
+    };
+    const { result } = renderHook(() =>
+      useTagMenu({
+        ...makeOpts(target, {
+          columns: [{ fieldName: '__measure_axis__', type: 'MeasureGroupName' }],
+        }),
+        onOpenCustomSort: cb,
+      }),
+    );
+    const labels = getSortSubmenu(result.current).map((i) => i.label ?? '');
+    expect(labels.some((l) => typeof l === 'string' && l.includes('自定义排序'))).toBe(false);
+  });
+
+  it('已配 ByCustomCaption → label 加 ✓ + 数量', () => {
+    const cb = vi.fn();
+    const target: TagMenuTarget = {
+      zone: 'row',
+      fieldName: 'region',
+      fieldType: 'Dimension',
+      x: 0,
+      y: 0,
+    };
+    const { result } = renderHook(() =>
+      useTagMenu({
+        ...makeOpts(target, {
+          rows: [{ fieldName: 'region', type: 'Dimension' }],
+          rowSorts: [
+            {
+              type: 'ByCustomCaption',
+              fieldName: 'region',
+              direction: 'ASC',
+              customCaption: ['华东', '华南', '华北'],
+            },
+          ],
+        }),
+        onOpenCustomSort: cb,
+      }),
+    );
+    const customItem = getSortSubmenu(result.current).find(
+      (i) => typeof i.label === 'string' && i.label.includes('自定义排序'),
+    );
+    expect(customItem?.label).toContain('✓');
+    expect(customItem?.label).toContain('3'); // 3 项
+  });
+
+  it('点"自定义排序…" → onOpenCustomSort 收到 fieldName', () => {
+    const cb = vi.fn();
+    const target: TagMenuTarget = {
+      zone: 'row',
+      fieldName: 'ShipProvince',
+      fieldType: 'Dimension',
+      x: 0,
+      y: 0,
+    };
+    const { result } = renderHook(() =>
+      useTagMenu({
+        ...makeOpts(target, {
+          rows: [{ fieldName: 'ShipProvince', type: 'Dimension' }],
+        }),
+        onOpenCustomSort: cb,
+      }),
+    );
+    const item = getSortSubmenu(result.current).find(
+      (i) => typeof i.label === 'string' && i.label.includes('自定义排序'),
+    );
+    item?.onClick?.();
+    expect(cb).toHaveBeenCalledWith('ShipProvince');
+  });
+});

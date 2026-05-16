@@ -849,3 +849,98 @@ describe('useViewConfig — duplicate chip 精确定位 (chipIdx)', () => {
     expect(result.current[0].values[1]!.aggregator).toBe('AVG'); // idx 1 没动
   });
 });
+
+// ============================================================
+// P5+ SET_CUSTOM_SORT_ORDER / REMOVE_CUSTOM_SORT_ORDER 自定义排序
+// ============================================================
+describe('useViewConfig — 自定义排序 actions', () => {
+  it('SET_CUSTOM_SORT_ORDER → rowSorts 加 ByCustomCaption', () => {
+    const { result } = renderHook(() =>
+      useViewConfig({ defaultValue: buildViewConfig({}) }),
+    );
+    act(() =>
+      result.current[1]({
+        type: 'SET_CUSTOM_SORT_ORDER',
+        fieldName: 'region',
+        customCaption: ['华东', '华南', '华北'],
+      }),
+    );
+    expect(result.current[0].rowSorts).toEqual([
+      {
+        type: 'ByCustomCaption',
+        fieldName: 'region',
+        direction: 'ASC',
+        customCaption: ['华东', '华南', '华北'],
+      },
+    ]);
+  });
+
+  it('SET_CUSTOM_SORT_ORDER 再调一次 → 替换(不重复)', () => {
+    const { result } = renderHook(() =>
+      useViewConfig({ defaultValue: buildViewConfig({}) }),
+    );
+    act(() =>
+      result.current[1]({
+        type: 'SET_CUSTOM_SORT_ORDER',
+        fieldName: 'region',
+        customCaption: ['华东', '华南'],
+      }),
+    );
+    act(() =>
+      result.current[1]({
+        type: 'SET_CUSTOM_SORT_ORDER',
+        fieldName: 'region',
+        customCaption: ['华北', '华西'],
+        direction: 'DESC',
+      }),
+    );
+    expect(result.current[0].rowSorts).toEqual([
+      {
+        type: 'ByCustomCaption',
+        fieldName: 'region',
+        direction: 'DESC',
+        customCaption: ['华北', '华西'],
+      },
+    ]);
+  });
+
+  it('REMOVE_CUSTOM_SORT_ORDER → 仅删该字段的 ByCustomCaption,其他 sort 保留', () => {
+    const { result } = renderHook(() =>
+      useViewConfig({
+        defaultValue: buildViewConfig({
+          rowSorts: [
+            { type: 'ByMeasure', measureName: MEASURE, direction: 'DESC' },
+            {
+              type: 'ByCustomCaption',
+              fieldName: 'region',
+              direction: 'ASC',
+              customCaption: ['华东'],
+            },
+          ],
+        }),
+      }),
+    );
+    act(() =>
+      result.current[1]({ type: 'REMOVE_CUSTOM_SORT_ORDER', fieldName: 'region' }),
+    );
+    expect(result.current[0].rowSorts).toEqual([
+      { type: 'ByMeasure', measureName: MEASURE, direction: 'DESC' },
+    ]);
+  });
+
+  it('SET_CUSTOM_SORT_ORDER 入 history → 可 undo', () => {
+    const { result } = renderHook(() =>
+      useViewConfig({ defaultValue: buildViewConfig({}) }),
+    );
+    act(() =>
+      result.current[1]({
+        type: 'SET_CUSTOM_SORT_ORDER',
+        fieldName: 'region',
+        customCaption: ['华东', '华南'],
+      }),
+    );
+    expect(result.current[2].canUndo).toBe(true);
+    act(() => result.current[2].undo());
+    expect(result.current[0].rowSorts).toEqual([]);
+  });
+});

@@ -68,10 +68,26 @@ export interface UseTagMenuOptions {
    * 不传则不渲染该菜单项。
    */
   onOpenConditionalFormat?: (measure: string) => void;
+  /**
+   * P5+ 维度区 chip 右键 "自定义排序…" — 父组件打开 CustomSortOrderModal。
+   * 仅在 zone='row'/'column' + Dimension/Level 字段时生效。
+   * 不传则不渲染该菜单项。
+   */
+  onOpenCustomSort?: (fieldName: string) => void;
 }
 
 export function useTagMenu(opts: UseTagMenuOptions): ContextMenuItem[] {
-  const { tagMenu, viewConfig, metaIndex, timeAxis, allTimeAxes, viewMode, dispatch, onOpenConditionalFormat } = opts;
+  const {
+    tagMenu,
+    viewConfig,
+    metaIndex,
+    timeAxis,
+    allTimeAxes,
+    viewMode,
+    dispatch,
+    onOpenConditionalFormat,
+    onOpenCustomSort,
+  } = opts;
   const { isAdhoc } = viewMode;
 
   return useMemo<ContextMenuItem[]>(() => {
@@ -128,6 +144,19 @@ export function useTagMenu(opts: UseTagMenuOptions): ContextMenuItem[] {
     const canDown = idxInZone >= 0 && idxInZone < zoneArr.length - 1;
 
     // 子菜单 1:排序 — adhoc 模式不支持分组内排序(无聚合分组)
+    // P5+ 自定义排序 — 仅 row/column zone 的非 Measure 字段(Dimension/Level 等)
+    // pivot/adhoc 都可用(后端 DimensionSort + ByCustomCaption 都支持)
+    const supportsCustomSort =
+      !isMeasure &&
+      fieldType !== 'MeasureGroupName' &&
+      (zone === 'row' || zone === 'column') &&
+      !!onOpenCustomSort;
+    // 当前已配的 ByCustomCaption(用于在菜单项加 ✓ + 检测要不要禁用其他 sort 路径)
+    const currentCustomSort = viewConfig.rowSorts.find(
+      (s): s is Extract<typeof s, { type: 'ByCustomCaption' }> =>
+        s.type === 'ByCustomCaption' && s.fieldName === fieldName,
+    );
+
     const sortChildren: ContextMenuItem[] = [
       sortItem('升序', 'ASC'),
       sortItem('降序', 'DESC'),
@@ -137,18 +166,31 @@ export function useTagMenu(opts: UseTagMenuOptions): ContextMenuItem[] {
       {
         key: 'sort-clear',
         label: '取消排序',
-        disabled: !currentSort,
+        disabled: !currentSort && !currentCustomSort,
         onClick: () => {
           const next = viewConfig.rowSorts.filter(
             (s) =>
               !(
                 (s.type === 'ByMeasure' && s.measureName === fieldName) ||
-                (s.type === 'ByDimension' && s.fieldName === fieldName)
+                (s.type === 'ByDimension' && s.fieldName === fieldName) ||
+                (s.type === 'ByCustomCaption' && s.fieldName === fieldName)
               ),
           );
           dispatch({ type: 'SET', viewConfig: { ...viewConfig, rowSorts: next } });
         },
       },
+      ...(supportsCustomSort
+        ? [
+            { key: 'sort-sep-custom', separator: true as const },
+            {
+              key: 'sort-custom',
+              label: currentCustomSort
+                ? `✓ 自定义排序…(${currentCustomSort.customCaption.length} 项)`
+                : '自定义排序…',
+              onClick: () => onOpenCustomSort!(fieldName),
+            },
+          ]
+        : []),
     ];
 
     // 子菜单 2:位置(上下移)
