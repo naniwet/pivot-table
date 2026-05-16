@@ -22,12 +22,12 @@ import { buildRowHeaderSpans } from '../../core/cellSetParser/rowHeaderSpans.js'
 import { computeColRanges } from '../../core/conditionalFormat/computeColRanges.js';
 import { computeTopBottomCutoffs } from '../../core/conditionalFormat/computeTopBottomCutoffs.js';
 import {
-  computeRowScopeStyles,
   evaluateDataBar,
   evaluateThreshold,
   evaluateTopBottom,
   getRuleScope,
   hasRulesFor,
+  type CellFormatStyle,
 } from '../../core/conditionalFormat/evaluateRule.js';
 import {
   buildTreeColumnLevels,
@@ -386,30 +386,79 @@ export function PivotRenderer({
         : null,
     [renderModel, condFormats],
   );
-  // P5+ row-scope styles:rule.scope='row' 的规则预算 Map<rowIdx, style>
-  // 命中 → 该整行所有 cell 都套样式(行表头 + 数据列都拿到)
-  const rowScopeStyles = useMemo(() => {
+  // P5+ row-scope hits — 透视模式"十字飘色"语义:
+  //   命中 cell 的 (r,c) 本身 + 该 cell 的行表头(r) + 列表头路径(c 所在的每层 th)
+  //   而不是"整行所有 cell" — 后者在多 measure 列场景下会让无关 measure 也飘色,不直观
+  //   adhoc 模式仍走"整行所有 cell"(DetailRenderer 单独路径,无列头树),不动
+  //
+  // 数据结构:
+  //   cells: Map<"r,c", style> — 哪些具体 cell 命中
+  //   rows:  Map<r,    style> — 行头(任一 cell 命中即整行 row header 飘色)
+  //   cols:  Map<c,    style> — 列头(任一 cell 命中即整列 column header 路径飘色)
+  //
+  // first-wins(同 cell 多 row-scope rule 命中,数组顺序第一条赢)
+  const rowScopeHits = useMemo(() => {
     if (!renderModel || condFormats.length === 0) return null;
-    // 该 measure 在 matrix 中可能跨多 column tuple — row-scope 只看是否命中,取首个
-    const cellValueAt = (r: number, measure: string): number | null => {
-      const row = renderModel.matrix[r];
-      if (!row) return null;
+    const rowScopeRules = condFormats.filter((r) => getRuleScope(r) === 'row');
+    if (rowScopeRules.length === 0) return null;
+    const cells = new Map<string, CellFormatStyle>();
+    const rows = new Map<number, CellFormatStyle>();
+    const cols = new Map<number, CellFormatStyle>();
+    const cutoffs = topBottomCutoffs ?? new Map();
+    for (let r = 0; r < renderModel.matrix.length; r++) {
+      const row = renderModel.matrix[r]!;
       for (let c = 0; c < renderModel.columnHeader.length; c++) {
-        if (renderModel.columnHeader[c]?.fieldName !== measure) continue;
         const cell = row[c];
         if (!cell || cell.isEmpty || cell.isMasked) continue;
         const v = cell.value;
-        if (typeof v === 'number' && Number.isFinite(v)) return v;
+        if (typeof v !== 'number' || !Number.isFinite(v)) continue;
+        const cellMeasure = renderModel.columnHeader[c]?.fieldName;
+        if (!cellMeasure) continue;
+        for (const rule of rowScopeRules) {
+          if (rule.measure !== cellMeasure) continue;
+          // 复用 evaluateThreshold / evaluateTopBottom(传单 rule 数组即可)
+          const single = [rule];
+          let style: CellFormatStyle = {};
+          if (rule.kind === 'threshold') {
+            style = evaluateThreshold(single, cellMeasure, v);
+          } else if (rule.kind === 'topN' || rule.kind === 'bottomN') {
+            style = evaluateTopBottom(single, cellMeasure, v, cutoffs);
+          }
+          if (style.bg || style.fg || style.bold) {
+            cells.set(`${r},${c}`, style);
+            if (!rows.has(r)) rows.set(r, style);
+            if (!cols.has(c)) cols.set(c, style);
+            break; // 该 cell first-wins
+          }
+        }
       }
-      return null;
-    };
-    return computeRowScopeStyles(
-      condFormats,
-      renderModel.matrix.length,
-      cellValueAt,
-      topBottomCutoffs ?? new Map(),
-    );
+    }
+    return { cells, rows, cols };
   }, [renderModel, condFormats, topBottomCutoffs]);
+
+  // 给列头渲染算 (level, cellIdx) → 数据列覆盖范围 [start, end),
+  // 用来判定该 th 是否覆盖任一 rowScopeHits.cols 命中的列 → 飘色
+  const headerCellRanges = useMemo(() => {
+    if (!renderModel) return null;
+    const levels =
+      renderModel.columnHeaderLevels ??
+      [
+        renderModel.columnHeader.map((c) => ({
+          fieldName: c.fieldName,
+          label: c.alias,
+          colSpan: 1,
+          isMeasure: c.isMeasure,
+        })),
+      ];
+    return levels.map((levelCells) => {
+      let start = 0;
+      return levelCells.map((cell) => {
+        const range = { start, end: start + cell.colSpan };
+        start += cell.colSpan;
+        return range;
+      });
+    });
+  }, [renderModel]);
   // P3+ 多列行头冻结(P5+ 修复:之前只有 col 0 sticky,多 dim 时其他列滚走)
   // 测量每个 row header 列的 offsetWidth → 算累积 left → 内联到 th style
   const tableRef = useRef<HTMLTableElement>(null);
@@ -772,6 +821,22 @@ export function PivotRenderer({
                   const customWidth = isLast ? columnWidths[cell.fieldName] : undefined;
                   const thStyle: CSSProperties = sortable ? { cursor: 'pointer' } : {};
                   if (customWidth !== undefined) thStyle.width = `${customWidth}px`;
+                  // P5+ row-scope 列头飘色:该 th 覆盖的数据列范围 [start, end) 内,
+                  // 任一列被 row-scope 命中 → 列头跟着飘色(跟行头飘色对称,组成"十字")
+                  if (rowScopeHits && rowScopeHits.cols.size > 0) {
+                    const range = headerCellRanges?.[lvlIdx]?.[cellIdx];
+                    if (range) {
+                      for (let dc = range.start; dc < range.end; dc++) {
+                        const colStyle = rowScopeHits.cols.get(dc);
+                        if (colStyle) {
+                          if (colStyle.bg) thStyle.backgroundColor = colStyle.bg;
+                          if (colStyle.fg) thStyle.color = colStyle.fg;
+                          if (colStyle.bold) thStyle.fontWeight = 600;
+                          break;
+                        }
+                      }
+                    }
+                  }
                   // P3+ 列树模式 — 非叶 cell 加 toggle(▶ collapsed / ▼ expanded)
                   const showColToggle = colTreeMode && treeCell?.hasChildren && !isLast;
                   const showCollapsedBadge = isCollapsedParent;
@@ -961,8 +1026,8 @@ export function PivotRenderer({
                         });
                       }
                     : undefined;
-                // P5+ 行 row-scope 条件格式化 — 行表头也套样式(视觉连贯)
-                const rowScopeForTh = rowScopeStyles?.get(r);
+                // P5+ row-scope 行头飘色 — 任一 cell 命中该 row 的 row-scope rule,行头跟着飘色
+                const rowScopeForTh = rowScopeHits?.rows.get(r);
                 const thInlineStyle: CSSProperties = {};
                 if (stickyLeft !== undefined) thInlineStyle.left = `${stickyLeft}px`;
                 if (rowScopeForTh) {
@@ -1051,13 +1116,14 @@ export function PivotRenderer({
                 let cellInlineStyle: CSSProperties | undefined;
                 let dataBarNode: ReactNode = null;
                 const cellMeasure = colHeader?.fieldName;
-                // P5+ row-scope fallback:命中 → 整行所有 cell 默认套该 style(空 cell 也套)
-                const rowScopeStyle = rowScopeStyles?.get(r);
-                if (rowScopeStyle) {
+                // P5+ row-scope:仅"该 cell 自己"命中才飘色(行头列头跟着飘),
+                // 不会"同行其他 measure cell"也飘 — 跟用户视觉直觉一致
+                const rowScopeCellStyle = rowScopeHits?.cells.get(`${r},${c}`);
+                if (rowScopeCellStyle) {
                   cellInlineStyle = {
-                    ...(rowScopeStyle.bg ? { backgroundColor: rowScopeStyle.bg } : {}),
-                    ...(rowScopeStyle.fg ? { color: rowScopeStyle.fg } : {}),
-                    ...(rowScopeStyle.bold ? { fontWeight: 600 } : {}),
+                    ...(rowScopeCellStyle.bg ? { backgroundColor: rowScopeCellStyle.bg } : {}),
+                    ...(rowScopeCellStyle.fg ? { color: rowScopeCellStyle.fg } : {}),
+                    ...(rowScopeCellStyle.bold ? { fontWeight: 600 } : {}),
                   };
                 }
                 if (
