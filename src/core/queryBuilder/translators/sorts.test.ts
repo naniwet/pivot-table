@@ -41,4 +41,28 @@ describe('translateSorts', () => {
       { _enum: 'DimensionSortEx', dimension: 'ShipProvince', direction: 'ASC' },
     ]);
   });
+
+  it('produces DimensionSort+ByCustomCaption for custom sort order', () => {
+    const sorts = [{ type: 'ByCustomCaption' as const, fieldName: 'ShipProvince', direction: 'ASC' as const, customCaption: ['华南', '华北', '华东'] }];
+    const result = translateSorts(sorts);
+    expect(result).toEqual([
+      {
+        _enum: 'DimensionSort',
+        dimension: 'ShipProvince',
+        direction: 'ASC',
+        sortBy: { _enum: 'ByCustomCaption', customCaption: ['华南', '华北', '华东'] },
+      },
+    ]);
+  });
+
+  it('ByCustomCaption with DESC direction', () => {
+    const sorts = [{ type: 'ByCustomCaption' as const, fieldName: 'Region', direction: 'DESC' as const, customCaption: ['华东', '华南'] }];
+    const result = translateSorts(sorts);
+    expect(result[0]).toMatchObject({
+      _enum: 'DimensionSort',
+      dimension: 'Region',
+      direction: 'DESC',
+    });
+    expect((result[0] as any).sortBy).toEqual({ _enum: 'ByCustomCaption', customCaption: ['华东', '华南'] });
+  });
 });

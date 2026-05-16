@@ -32,10 +32,10 @@ const SAMPLE_TIME_AXIS: TimeAxisInfo = {
 } as TimeAxisInfo;
 
 describe('quickCalcs — 选项表(I1)', () => {
-  it('P1 5 个 / P2 4 个 / ALL = 9', () => {
-    expect(P1_QUICK_CALCS).toHaveLength(5);
+  it('P1 9 个(+GroupPercent +GlobalRankAscending +GroupRankDescending +GroupRankAscending) / P2 4 个 / ALL = 13', () => {
+    expect(P1_QUICK_CALCS).toHaveLength(9);
     expect(P2_TIME_QUICK_CALCS).toHaveLength(4);
-    expect(ALL_QUICK_CALCS).toHaveLength(9);
+    expect(ALL_QUICK_CALCS).toHaveLength(13);
   });
 
   it('每个选项 enumName 全集唯一(后端 enum 不能重)', () => {

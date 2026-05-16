@@ -28,6 +28,14 @@ export function translateSorts(
         direction: s.direction,
       };
     }
+    if (s.type === 'ByCustomCaption') {
+      return {
+        _enum: 'DimensionSort',
+        dimension: s.fieldName,
+        direction: s.direction,
+        sortBy: { _enum: 'ByCustomCaption', customCaption: s.customCaption },
+      };
+    }
     // ByDimension — P1.0 起：按维度成员字典序 ASC/DESC
     return {
       _enum: 'DimensionSortEx',

@@ -350,4 +350,210 @@ describe('用户业务场景:翻译正确性回归', () => {
     expect(q.fields).toEqual([]);
     expect(q.measureFilters).toEqual([]);
   });
+
+  // ============================================================
+  // 用户 9 业务场景补充 (G1–G9)
+  // ============================================================
+  describe('用户业务场景:9 场景回归', () => {
+    // ─── G4: "华东或华南区域里面的省份，同时销售额必须大于5万" ───
+    it('G4: OR 维度筛选(华东 OR 华南) + 度量筛选(销售额>50000)', () => {
+      const vc = buildViewConfig({
+        rows: [{ fieldName: PROVINCE, type: 'Dimension' }],
+        values: [buildValueField({ measureName: SALES })],
+        filters: [
+          {
+            kind: 'group',
+            op: 'Or',
+            children: [
+              buildLeafFilter({ field: PROVINCE, value: ['华东'], operator: 'In' }),
+              buildLeafFilter({ field: PROVINCE, value: ['华南'], operator: 'In' }),
+            ],
+          },
+        ],
+        measureFilters: [
+          { kind: 'leaf', measureName: SALES, operator: 'GreaterThan', value: 50000 },
+        ],
+      });
+      const q = buildQuery(vc, orderModelMetadata, defaultPageState);
+      // dimensionFilter 应包含 Or 树形结构
+      expect(q.dimensionFilter).not.toBeNull();
+      const dimStr = JSON.stringify(q.dimensionFilter);
+      expect(dimStr).toContain('Or');
+      expect(dimStr).toContain('华东');
+      expect(dimStr).toContain('华南');
+      // measureFilter 应包含 GreaterThan 50000
+      expect(q.measureFilters.length).toBeGreaterThan(0);
+      const mfStr = JSON.stringify(q.measureFilters);
+      expect(mfStr).toContain('GreaterThan');
+      expect(mfStr).toContain('50000');
+    });
+
+    // ─── G5: "所有省份的排名和占比 + 省在所属区域内的排名和占比" ───
+    it('G5a: 全局排名 + 行占比(RowGlobalRank + RowGlobalPercent)', () => {
+      const vc = buildViewConfig({
+        rows: [{ fieldName: PROVINCE, type: 'Dimension' }],
+        values: [
+          buildValueField({ measureName: SALES }),
+          buildValueField({ measureName: SALES, quickCalc: { _enum: 'RowGlobalRankDescending' } }),
+          buildValueField({ measureName: SALES, quickCalc: { _enum: 'RowGlobalPercent' } }),
+        ],
+      });
+      const q = buildQuery(vc, orderModelMetadata, defaultPageState);
+      const colNames = q.columns as string[];
+      // raw measure 列 + 两个 @QC@ 列
+      expect(colNames).toContain(SALES);
+      expect(colNames).toContain(`${SALES}@QC@RowGlobalRankDescending`);
+      expect(colNames).toContain(`${SALES}@QC@RowGlobalPercent`);
+      // raw measure(无 aggregator 无 QC→ MeasureField 不必要)+ 2 QC 列
+      const mfFields = q.fields.filter((f: any) => f._enum === 'MeasureField');
+      expect(mfFields).toHaveLength(2); // 只有 2 个 QC 需要 MeasureField
+    });
+
+    it('G5b: 全局排名降序 + 占总计百分比(TotalPercent)', () => {
+      const vc = buildViewConfig({
+        rows: [{ fieldName: PROVINCE, type: 'Dimension' }],
+        values: [
+          buildValueField({ measureName: SALES, quickCalc: { _enum: 'GlobalRankDescending' } }),
+          buildValueField({ measureName: SALES, quickCalc: { _enum: 'TotalPercent' } }),
+        ],
+      });
+      const q = buildQuery(vc, orderModelMetadata, defaultPageState);
+      // 两个 quick calc 列(无 raw measure)
+      expect(q.columns).toEqual([
+        `${SALES}@QC@GlobalRankDescending`,
+        `${SALES}@QC@TotalPercent`,
+      ]);
+      // fields 含 quickCalc
+      expect(q.fields).toHaveLength(2);
+      const serialized = JSON.stringify(q.fields);
+      expect(serialized).toContain('GlobalRankDescending');
+    });
+
+    // G5 补充:GroupPercent(占分组%— schema 已有,刚刚补入 P1_QUICK_CALCS UI 列表)
+    it('G5c: 占分组 % (GroupPercent — 即"省在所属区域内的占比")', () => {
+      const vc = buildViewConfig({
+        rows: [{ fieldName: PROVINCE, type: 'Dimension' }],
+        values: [buildValueField({ measureName: SALES, quickCalc: { _enum: 'GroupPercent' } })],
+      });
+      const q = buildQuery(vc, orderModelMetadata, defaultPageState);
+      expect(q.columns).toEqual([`${SALES}@QC@GroupPercent`]);
+      expect((q.fields[0] as any).quickCalc).toEqual({ _enum: 'GroupPercent' });
+    });
+
+    // G5 补充:分组排名(GroupRank — schema 已有,刚刚补入 P1_QUICK_CALCS)
+    it('G5d: 分组排名 (GroupRankDescending — 即"省在所属区域内的排名")', () => {
+      const vc = buildViewConfig({
+        rows: [{ fieldName: PROVINCE, type: 'Dimension' }],
+        values: [buildValueField({ measureName: SALES, quickCalc: { _enum: 'GroupRankDescending' } })],
+      });
+      const q = buildQuery(vc, orderModelMetadata, defaultPageState);
+      expect(q.columns).toEqual([`${SALES}@QC@GroupRankDescending`]);
+      expect((q.fields[0] as any).quickCalc).toEqual({ _enum: 'GroupRankDescending' });
+    });
+
+    it('G5e: 分组排名升序 (GroupRankAscending)', () => {
+      const vc = buildViewConfig({
+        rows: [{ fieldName: PROVINCE, type: 'Dimension' }],
+        values: [buildValueField({ measureName: SALES, quickCalc: { _enum: 'GroupRankAscending' } })],
+      });
+      const q = buildQuery(vc, orderModelMetadata, defaultPageState);
+      expect(q.columns).toEqual([`${SALES}@QC@GroupRankAscending`]);
+    });
+
+    // ─── G7: "度量排序 + 字符串排序" ───
+    it('G7a: 度量排序 — 销售额降序', () => {
+      const vc = buildViewConfig({
+        rows: [{ fieldName: PROVINCE, type: 'Dimension' }],
+        values: [buildValueField({ measureName: SALES })],
+        rowSorts: [{ type: 'ByMeasure', measureName: SALES, direction: 'DESC' }],
+      });
+      const q = buildQuery(vc, orderModelMetadata, defaultPageState);
+      expect(q.rowSorts).toHaveLength(1);
+      const sortStr = JSON.stringify(q.rowSorts[0]);
+      expect(sortStr).toContain('DESC');
+      expect(sortStr).toContain(SALES);
+    });
+
+    it('G7b: 维度排序 — 省份升序(ByDimension ASC)', () => {
+      const vc = buildViewConfig({
+        rows: [{ fieldName: PROVINCE, type: 'Dimension' }],
+        values: [buildValueField({ measureName: SALES })],
+        rowSorts: [{ type: 'ByDimension', fieldName: PROVINCE, direction: 'ASC' }],
+      });
+      const q = buildQuery(vc, orderModelMetadata, defaultPageState);
+      expect(q.rowSorts).toHaveLength(1);
+      const sortStr = JSON.stringify(q.rowSorts[0]);
+      expect(sortStr).toContain('ASC');
+      expect(sortStr).toContain(PROVINCE);
+    });
+
+    // G7 补充:自定义顺序(ByCustomCaption)→ 后端 DimensionSortBy.ByCustomCaption
+    it('G7c: 自定义排序 — 省份按指定顺序排列(华南→华北→华东)', () => {
+      const vc = buildViewConfig({
+        rows: [{ fieldName: PROVINCE, type: 'Dimension' }],
+        values: [buildValueField({ measureName: SALES })],
+        rowSorts: [
+          { type: 'ByCustomCaption', fieldName: PROVINCE, direction: 'ASC', customCaption: ['华南', '华北', '华东'] },
+        ],
+      });
+      const q = buildQuery(vc, orderModelMetadata, defaultPageState);
+      expect(q.rowSorts).toHaveLength(1);
+      const sort = q.rowSorts[0]!;
+      expect(sort._enum).toBe('DimensionSort');
+      expect((sort as any).dimension).toBe(PROVINCE);
+      expect((sort as any).sortBy).toEqual({
+        _enum: 'ByCustomCaption',
+        customCaption: ['华南', '华北', '华东'],
+      });
+    });
+
+    // ─── G8: 条件格式(阈值规则)回归 ───
+    // 注:条件格式不走 buildQuery(纯渲染层),这里只验证 ViewConfig 携带 correct rule shape。
+    // evaluateRule.test.ts 已有完整的阈值/排名/色阶单元测试。
+    it('G8: 条件格式 rule shape — 销售额>50000 底色(背景色)', () => {
+      const vc = buildViewConfig({
+        rows: [{ fieldName: PROVINCE, type: 'Dimension' }],
+        values: [buildValueField({ measureName: SALES })],
+        pageState: {
+          ...defaultPageState,
+          conditionalFormats: [{
+            id: 'cf-1',
+            kind: 'threshold',
+            mode: 'pivot',
+            scope: 'cell',
+            measure: SALES,
+            conditions: [{
+              op: 'gt',
+              value: 50000,
+              style: { bg: '#fff4e6' },
+            }],
+          }],
+        },
+      });
+      expect(vc.pageState.conditionalFormats).toHaveLength(1);
+      const rule = vc.pageState.conditionalFormats![0]!;
+      expect(rule.kind).toBe('threshold');
+      expect(rule.measure).toBe(SALES);
+    });
+
+    // ─── G9: 导出 Excel/CSV ───
+    it('G9: exportMaxRows + pageState 传递到 query', () => {
+      const vc = buildViewConfig({
+        rows: [{ fieldName: PROVINCE, type: 'Dimension' }],
+        values: [buildValueField({ measureName: SALES })],
+        pageState: {
+          ...defaultPageState,
+          exportMaxRows: 20000,
+          rowPageSize: 1000,
+        },
+      });
+      expect(vc.pageState.exportMaxRows).toBe(20000);
+      expect(vc.pageState.rowPageSize).toBe(1000);
+      const q = buildQuery(vc, orderModelMetadata, vc.pageState);
+      // buildQuery 将 vc.pageState.rowPageSize 写入 pageSettings
+      expect(q.pageSettings.rowPageSize).toBe(1000);
+      expect(q.pageSettings.columnPageSize).toBe(50);
+      // exportMaxRows 仅导出时用,不进入日常 query 的 pageSettings
+    });
+  });
 });

@@ -139,7 +139,8 @@ export type ClientMeasureFilter = MeasureFilter | MeasureFilterGroup;
  */
 export type Sort =
   | { type: 'ByMeasure'; measureName: string; direction: SortDirection }
-  | { type: 'ByDimension'; fieldName: string; direction: SortDirection };
+  | { type: 'ByDimension'; fieldName: string; direction: SortDirection }
+  | { type: 'ByCustomCaption'; fieldName: string; direction: SortDirection; customCaption: string[] };
 
 // ===== 分页状态 =====
 
