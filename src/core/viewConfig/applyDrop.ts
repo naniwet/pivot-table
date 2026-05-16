@@ -140,7 +140,8 @@ export function applyDrop(
         const adjIdxLocal = adjustInsertIdxForRemove(origIdx, insertIdx);
         return { ...viewConfig, values: insertAt(others, adjIdxLocal, item) };
       }
-      // chipKey/chipIndex 不在(异常情况)— fallthrough APPEND
+      // chipKey/chipIndex 不在(异常情况)— 不 fallthrough APPEND,避免产生幽灵 chip
+      return viewConfig;
     }
     // 字段树拖入 / 跨 zone 拖入 → APPEND;同时清理 row/column 中同名(单字段不能 row + value 并存)
     const cleared = {

@@ -654,4 +654,84 @@ describe('DropZones — P5+ duplicate chip 视觉警告', () => {
     const valueZone = screen.getByTestId('zone-value');
     expect(within(valueZone).queryByText('⚠')).toBeNull();
   });
+
+  it('同 measure 重复 chip 第 2 个改 agg → 不再标 duplicate,仍只有 2 个 chip(无幽灵节点)', () => {
+    const vc1 = buildViewConfig({
+      values: [
+        buildValueField({ measureName: FIELD_IDS.salesMeasure }),
+        buildValueField({ measureName: FIELD_IDS.salesMeasure }), // duplicate
+      ],
+    });
+    const { rerender } = render(
+      <DropZones
+        viewConfig={vc1}
+        metadata={orderModelMetadata}
+        onDrop={vi.fn()}
+        onRemove={vi.fn()}
+      />,
+    );
+    const valueZone = screen.getByTestId('zone-value');
+    // 初始:2 chip + ⚠ icon 1 个
+    expect(within(valueZone).getAllByText('⚠')).toHaveLength(1);
+
+    // 模拟第 2 个 chip 切聚合方式
+    const vc2 = buildViewConfig({
+      values: [
+        buildValueField({ measureName: FIELD_IDS.salesMeasure }),
+        buildValueField({ measureName: FIELD_IDS.salesMeasure, aggregator: 'SUM' }),
+      ],
+    });
+    rerender(
+      <DropZones
+        viewConfig={vc2}
+        metadata={orderModelMetadata}
+        onDrop={vi.fn()}
+        onRemove={vi.fn()}
+      />,
+    );
+
+    // duplicate 标记应消失
+    expect(within(valueZone).queryByText('⚠')).toBeNull();
+    // 仍只有 2 个 chip(data-field-tag)
+    const chips = valueZone.querySelectorAll('[data-field-tag]');
+    expect(chips).toHaveLength(2);
+  });
+
+  it('同 measure 重复 chip 第 2 个改 qc → 不标 duplicate,仍 2 chip', () => {
+    const vc1 = buildViewConfig({
+      values: [
+        buildValueField({ measureName: FIELD_IDS.salesMeasure }),
+        buildValueField({ measureName: FIELD_IDS.salesMeasure }), // duplicate
+      ],
+    });
+    const { rerender } = render(
+      <DropZones
+        viewConfig={vc1}
+        metadata={orderModelMetadata}
+        onDrop={vi.fn()}
+        onRemove={vi.fn()}
+      />,
+    );
+    const valueZone = screen.getByTestId('zone-value');
+    expect(within(valueZone).getAllByText('⚠')).toHaveLength(1);
+
+    const vc2 = buildViewConfig({
+      values: [
+        buildValueField({ measureName: FIELD_IDS.salesMeasure }),
+        buildValueField({ measureName: FIELD_IDS.salesMeasure, quickCalc: { _enum: 'TotalPercent' } }),
+      ],
+    });
+    rerender(
+      <DropZones
+        viewConfig={vc2}
+        metadata={orderModelMetadata}
+        onDrop={vi.fn()}
+        onRemove={vi.fn()}
+      />,
+    );
+
+    expect(within(valueZone).queryByText('⚠')).toBeNull();
+    const chips = valueZone.querySelectorAll('[data-field-tag]');
+    expect(chips).toHaveLength(2);
+  });
 });

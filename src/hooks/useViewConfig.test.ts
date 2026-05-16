@@ -710,6 +710,105 @@ describe('useViewConfig — history (P5+)', () => {
     expect(result.current[2].canUndo).toBe(true);
   });
 
+  describe('同 measure 重复 value chip 精确定位(chipIndex)', () => {
+    it('SET_VALUE_AGGREGATOR + chipIndex=1 只改第 2 个 chip,不产生幽灵字段', () => {
+      const initial = buildViewConfig({
+        values: [
+          buildValueField({ measureName: MEASURE, aggregator: null }),
+          buildValueField({ measureName: MEASURE, aggregator: null }),
+        ],
+      });
+      expect(initial.values).toHaveLength(2);
+      const { result } = renderHook(() =>
+        useViewConfig({ defaultValue: initial, metadata: orderModelMetadata }),
+      );
+
+      act(() => {
+        result.current[1]({
+          type: 'SET_VALUE_AGGREGATOR',
+          chipKey: MEASURE,
+          aggregator: 'AVG',
+          chipIndex: 1,
+        });
+      });
+
+      const [vc] = result.current;
+      // 仍然只有 2 个 chip(没有幽灵)
+      expect(vc.values).toHaveLength(2);
+      // chip[0] 未变
+      expect(vc.values[0]!.aggregator).toBeNull();
+      // chip[1] 被改了
+      expect(vc.values[1]!.aggregator).toBe('AVG');
+    });
+
+    it('SET_VALUE_QUICK_CALC + chipIndex=1 只改第 2 个 chip', () => {
+      const initial = buildViewConfig({
+        values: [
+          buildValueField({ measureName: MEASURE, aggregator: null }),
+          buildValueField({ measureName: MEASURE, aggregator: null }),
+        ],
+      });
+      const { result } = renderHook(() =>
+        useViewConfig({ defaultValue: initial, metadata: orderModelMetadata }),
+      );
+
+      act(() => {
+        result.current[1]({
+          type: 'SET_VALUE_QUICK_CALC',
+          measureName: MEASURE,
+          quickCalc: { _enum: 'TotalPercent' },
+          chipIndex: 1,
+        });
+      });
+
+      const [vc] = result.current;
+      expect(vc.values).toHaveLength(2);
+      expect(vc.values[0]!.quickCalc).toBeNull();
+      expect(vc.values[1]!.quickCalc).toEqual({ _enum: 'TotalPercent' });
+    });
+
+    it('REMOVE_FIELD + chipIndex 精确删除第 2 个 chip,保留第 1 个', () => {
+      const initial = buildViewConfig({
+        values: [
+          buildValueField({ measureName: MEASURE, aggregator: null }),
+          buildValueField({ measureName: MEASURE, aggregator: 'SUM' }),
+        ],
+      });
+      const { result } = renderHook(() =>
+        useViewConfig({ defaultValue: initial, metadata: orderModelMetadata }),
+      );
+
+      act(() => {
+        result.current[1]({ type: 'REMOVE_FIELD', zone: 'value', fieldName: MEASURE, chipIndex: 1 });
+      });
+
+      const [vc] = result.current;
+      expect(vc.values).toHaveLength(1);
+      expect(vc.values[0]!.aggregator).toBeNull();
+    });
+
+    it('REMOVE_FIELD 不带 chipIndex → 按 encoded name 精确匹配删除(old fallback)', () => {
+      // 有 aggregator 的 chip encoded name 不同,可以精确匹配
+      const initial = buildViewConfig({
+        values: [
+          buildValueField({ measureName: MEASURE, aggregator: null }),
+          buildValueField({ measureName: MEASURE, aggregator: 'SUM' }),
+        ],
+      });
+      const { result } = renderHook(() =>
+        useViewConfig({ defaultValue: initial, metadata: orderModelMetadata }),
+      );
+
+      act(() => {
+        result.current[1]({ type: 'REMOVE_FIELD', zone: 'value', fieldName: `${MEASURE}@AGG@SUM` });
+      });
+
+      const [vc] = result.current;
+      expect(vc.values).toHaveLength(1);
+      expect(vc.values[0]!.aggregator).toBeNull();
+    });
+  });
+
   it('undo / redo 在受控模式 — 调 onChange 传 prev/next', () => {
     const onChange = vi.fn();
     const initial = buildViewConfig({

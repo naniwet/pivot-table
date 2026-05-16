@@ -117,9 +117,13 @@ export function useTagMenu(opts: UseTagMenuOptions): ContextMenuItem[] {
           : zone === 'value'
             ? viewConfig.values.map((v) => ({ fieldName: getMeasureFieldName(v) }))
             : [];
-    const idxInZone = zoneArr.findIndex(
-      (f) => (f as { fieldName: string }).fieldName === fieldName,
-    );
+    // value zone + chipIndex 提供 → 直接用 index 定位(同 measure 重复 chip 时 findIndex 只命第 1 个)
+    const idxInZone =
+      zone === 'value' && chipIndex !== undefined && chipIndex < zoneArr.length
+        ? chipIndex
+        : zoneArr.findIndex(
+            (f) => (f as { fieldName: string }).fieldName === fieldName,
+          );
     const canUp = idxInZone > 0;
     const canDown = idxInZone >= 0 && idxInZone < zoneArr.length - 1;
 
@@ -171,7 +175,10 @@ export function useTagMenu(opts: UseTagMenuOptions): ContextMenuItem[] {
     // P3+ 汇总依据 — value zone chip 右键(替换该 chip 自身的 aggregator)
     if (zone === 'value') {
       const chipKey = fieldName;
-      const targetChip = viewConfig.values.find((v) => getMeasureFieldName(v) === chipKey);
+      const targetChip =
+        chipIndex !== undefined && chipIndex < viewConfig.values.length
+          ? viewConfig.values[chipIndex]
+          : viewConfig.values.find((v) => getMeasureFieldName(v) === chipKey);
       const { measureName: baseMeasureName } = splitMeasureFieldName(fieldName);
       const node = metaIndex.findByName(baseMeasureName);
       const valueType = node?.valueType ?? null;
@@ -200,9 +207,12 @@ export function useTagMenu(opts: UseTagMenuOptions): ContextMenuItem[] {
 
     // 度量字段 + value zone:快速计算子菜单
     if (isMeasure && zone === 'value') {
-      const measureField = viewConfig.values.find(
-        (v) => getMeasureFieldName(v) === fieldName,
-      );
+      const measureField =
+        chipIndex !== undefined && chipIndex < viewConfig.values.length
+          ? viewConfig.values[chipIndex]
+          : viewConfig.values.find(
+              (v) => getMeasureFieldName(v) === fieldName,
+            );
       const currentQc = measureField?.quickCalc;
       const currentQcEnum =
         currentQc && typeof currentQc === 'object' && '_enum' in currentQc
