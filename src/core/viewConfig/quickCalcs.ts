@@ -45,9 +45,29 @@ export const P1_QUICK_CALCS: QuickCalcOption[] = [
     defaultPayload: { _enum: 'TotalPercent' },
   },
   {
+    label: '占分组 %',
+    enumName: 'GroupPercent',
+    defaultPayload: { _enum: 'GroupPercent' },
+  },
+  {
     label: '排名（从大到小）',
     enumName: 'GlobalRankDescending',
     defaultPayload: { _enum: 'GlobalRankDescending' },
+  },
+  {
+    label: '排名（从小到大）',
+    enumName: 'GlobalRankAscending',
+    defaultPayload: { _enum: 'GlobalRankAscending' },
+  },
+  {
+    label: '分组排名（从大到小）',
+    enumName: 'GroupRankDescending',
+    defaultPayload: { _enum: 'GroupRankDescending' },
+  },
+  {
+    label: '分组排名（从小到大）',
+    enumName: 'GroupRankAscending',
+    defaultPayload: { _enum: 'GroupRankAscending' },
   },
   {
     label: '累计值',

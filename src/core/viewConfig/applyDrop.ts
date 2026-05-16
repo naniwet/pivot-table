@@ -134,7 +134,10 @@ export function applyDrop(
         const adjIdxLocal = adjustInsertIdxForRemove(origIdx, insertIdx);
         return { ...viewConfig, values: insertAt(others, adjIdxLocal, item) };
       }
-      // chipKey 不在(异常情况)— fallthrough APPEND
+      // chipKey 不在(异常情况)— 不 fallthrough APPEND,避免幽灵 chip:
+      // 之前在 source zone 内重排时若 chipKey 查不到,会走到下面 APPEND 路径,
+      // 产生一个跟用户操作不符的额外 chip(用户感受是"我只是拖了一下重排,怎么多了一个")
+      return viewConfig;
     }
     // 字段树拖入 / 跨 zone 拖入 → APPEND;同时清理 row/column 中同名(单字段不能 row + value 并存)
     const cleared = {

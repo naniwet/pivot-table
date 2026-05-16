@@ -121,6 +121,12 @@ export type MeasureSortBy =
       includePreDimension: boolean;
     };
 
+/** P5+ DimensionSort 的 sortBy 字段 — 维度排序方式联合(后端 schema) */
+export type DimensionSortBy =
+  | { _enum: 'ByCaption' }
+  | { _enum: 'ByMeasure'; measure: string; context: MeasureContext }
+  | { _enum: 'ByCustomCaption'; customCaption: string[] };
+
 export type FieldSort =
   | { _enum: 'MeasureSortEx'; measure: MeasureSortBy; direction: SortDirection }
   | { _enum: 'DimensionSortEx'; dimension: string; direction: SortDirection }
@@ -134,7 +140,7 @@ export type FieldSort =
       _enum: 'DimensionSort';
       dimension: string;
       direction: SortDirection;
-      sortBy?: unknown | null;
+      sortBy?: DimensionSortBy | null;
       priority?: number;
     };
 
@@ -152,6 +158,8 @@ export type QuickCalculation =
   | { _enum: 'CumulativeValue' }
   | { _enum: 'GlobalRankAscending' }
   | { _enum: 'GlobalRankDescending' }
+  | { _enum: 'GroupRankAscending' }
+  | { _enum: 'GroupRankDescending' }
   // P2 起加时间智能等其他
   | { _enum: string; [key: string]: unknown };
 

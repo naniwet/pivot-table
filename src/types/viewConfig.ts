@@ -139,7 +139,14 @@ export type ClientMeasureFilter = MeasureFilter | MeasureFilterGroup;
  */
 export type Sort =
   | { type: 'ByMeasure'; measureName: string; direction: SortDirection }
-  | { type: 'ByDimension'; fieldName: string; direction: SortDirection };
+  | { type: 'ByDimension'; fieldName: string; direction: SortDirection }
+  /**
+   * P5+ 自定义排序顺序 — 用户为某个维度指定成员的显示顺序(JD/小米/华为/苹果)。
+   * customCaption 数组里的顺序就是 ASC 时的显示顺序;DESC 反序。
+   * 后端用 DimensionSort + sortBy: ByCustomCaption。
+   * 工具函数:setCustomSortOrder / removeCustomSortOrder(`core/viewConfig/cycleRowSort.ts`)
+   */
+  | { type: 'ByCustomCaption'; fieldName: string; direction: SortDirection; customCaption: string[] };
 
 // ===== 分页状态 =====
 
