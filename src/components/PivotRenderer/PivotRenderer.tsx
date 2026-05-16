@@ -1026,8 +1026,20 @@ export function PivotRenderer({
                         });
                       }
                     : undefined;
-                // P5+ row-scope 行头飘色 — 任一 cell 命中该 row 的 row-scope rule,行头跟着飘色
-                const rowScopeForTh = rowScopeHits?.rows.get(r);
+                // P5+ row-scope 行头飘色 — 检查该 th 的 rowSpan 范围内任一 row 命中(merge mode 多 row 头共用)
+                // 之前 bug:仅查 rows.get(r),r 是起始行;像"2023"覆盖 Q1-Q4 4 行,
+                //   命中在 Q4(r=3)时 rows.get(0) 返 undefined → 2023 行头不飘色
+                // 正确做法:扫整个 rowSpan 覆盖 [r, r+span) 内有没有 hit
+                let rowScopeForTh: CellFormatStyle | undefined;
+                if (rowScopeHits) {
+                  for (let rr = r; rr < r + span; rr++) {
+                    const s = rowScopeHits.rows.get(rr);
+                    if (s) {
+                      rowScopeForTh = s;
+                      break;
+                    }
+                  }
+                }
                 const thInlineStyle: CSSProperties = {};
                 if (stickyLeft !== undefined) thInlineStyle.left = `${stickyLeft}px`;
                 if (rowScopeForTh) {
