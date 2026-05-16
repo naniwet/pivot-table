@@ -208,16 +208,17 @@ export function TreeRenderer({
                       style={sortable ? { cursor: 'pointer' } : undefined}
                       title={
                         sortable
-                          ? '点击切换排序;Shift+点击 多列;Alt+点击 分组内排序(BASC/BDESC)'
+                          ? '点击切换分组内排序;Shift+点击 多列;Alt+点击 全局排序(ASC/DESC)'
                           : undefined
                       }
                       onClick={
                         sortable
                           ? (e) => {
                               // 折叠 toggle 不应触发排序(toggle 自己 stopPropagation)
+                              // 树状结构默认分组排序(BASC/BDESC)以保持层级结构;Alt+切全局排序
                               onSortClick!(cell.fieldName, sortKind, {
                                 multi: e.shiftKey,
-                                mode: e.altKey ? 'group' : 'global',
+                                mode: e.altKey ? 'global' : 'group',
                               });
                             }
                           : undefined

@@ -728,7 +728,7 @@ describe('useViewConfig — history (P5+)', () => {
           type: 'SET_VALUE_AGGREGATOR',
           chipKey: MEASURE,
           aggregator: 'AVG',
-          chipIndex: 1,
+          chipIdx: 1,
         });
       });
 
@@ -757,7 +757,7 @@ describe('useViewConfig — history (P5+)', () => {
           type: 'SET_VALUE_QUICK_CALC',
           measureName: MEASURE,
           quickCalc: { _enum: 'TotalPercent' },
-          chipIndex: 1,
+          chipIdx: 1,
         });
       });
 
@@ -779,7 +779,7 @@ describe('useViewConfig — history (P5+)', () => {
       );
 
       act(() => {
-        result.current[1]({ type: 'REMOVE_FIELD', zone: 'value', fieldName: MEASURE, chipIndex: 1 });
+        result.current[1]({ type: 'REMOVE_FIELD', zone: 'value', fieldName: MEASURE, chipIdx: 1 });
       });
 
       const [vc] = result.current;

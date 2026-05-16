@@ -130,8 +130,6 @@ export type ViewConfigAction =
       chipIdx?: number;
       /** 新 aggregator;null = 用 metadata 默认 */
       aggregator: import('../types/query.js').Aggregator | null;
-      /** value zone 同 measure 完全重复 chip 的精确定位索引 */
-      chipIndex?: number;
     }
   | {
       /** P5+ 切查询模式 — 切到 'adhoc' 时迁移 column/value 字段到 row */

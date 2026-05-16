@@ -90,7 +90,7 @@ export function useTagMenu(opts: UseTagMenuOptions): ContextMenuItem[] {
     onOpenConditionalFormat,
     onOpenCustomSort,
   } = opts;
-  const { isAdhoc } = viewMode;
+  const { isAdhoc, isTree } = viewMode;
 
   return useMemo<ContextMenuItem[]>(() => {
     if (!tagMenu) return [];
@@ -164,8 +164,9 @@ export function useTagMenu(opts: UseTagMenuOptions): ContextMenuItem[] {
     );
 
     const sortChildren: ContextMenuItem[] = [
-      sortItem('升序', 'ASC'),
-      sortItem('降序', 'DESC'),
+      ...(isTree
+        ? []
+        : [sortItem('升序', 'ASC'), sortItem('降序', 'DESC')]),
       ...(isAdhoc
         ? []
         : [sortItem('分组内升序', 'BASC'), sortItem('分组内降序', 'BDESC')]),

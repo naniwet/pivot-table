@@ -345,22 +345,49 @@
         grid-template-columns: 1fr 0 0;
       }
 
-      /* 设置 modal 中"面板显示"3 个 checkbox 的横排 */
+      /* 设置 modal 中"面板显示"3 个 toggle 横排 */
       .settings-modal__panel-toggles {
         display: flex;
-        gap: 12px;
+        gap: 16px;
         flex-wrap: wrap;
       }
       .settings-modal__panel-toggle {
         display: inline-flex;
         align-items: center;
-        gap: 4px;
+        gap: 6px;
         font-size: var(--fs-sm);
         color: var(--gray-700);
         cursor: pointer;
       }
       .settings-modal__panel-toggle input {
+        appearance: none;
+        margin: 0;
+        width: 34px;
+        height: 20px;
+        background: var(--gray-200);
+        border-radius: 10px;
+        position: relative;
         cursor: pointer;
+        transition: background var(--tr-fast);
+        flex-shrink: 0;
+      }
+      .settings-modal__panel-toggle input::after {
+        content: '';
+        position: absolute;
+        top: 2px;
+        left: 2px;
+        width: 16px;
+        height: 16px;
+        background: #fff;
+        border-radius: 50%;
+        transition: transform var(--tr-fast);
+        box-shadow: 0 1px 2px rgba(0,0,0,0.15);
+      }
+      .settings-modal__panel-toggle input:checked {
+        background: var(--primary);
+      }
+      .settings-modal__panel-toggle input:checked::after {
+        transform: translateX(14px);
       }
 
       /* ============================================================
@@ -396,12 +423,13 @@
         display: flex;
         align-items: center;
       }
+      /* 工具栏按钮 — 无边框扁平风格;hover 显底 */
       .toolbar-btn {
         height: 32px;
         padding: 0 var(--space-3);
-        border: 1px solid var(--gray-200);
+        border: none;
         border-radius: var(--r-md);
-        background: #fff;
+        background: transparent;
         cursor: pointer;
         font-size: var(--fs-md);
         font-family: inherit;
@@ -411,51 +439,42 @@
         display: inline-flex;
         align-items: center;
         gap: 6px;
-        box-shadow: 0 1px 0 rgba(0, 0, 0, 0.02);
       }
       .toolbar-btn svg { flex-shrink: 0; }
       .toolbar-btn:hover:not([disabled]) {
-        background: var(--gray-50);
-        border-color: var(--primary);
-        color: var(--primary);
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04);
-        transform: translateY(-1px);
+        background: var(--gray-100);
+        color: var(--gray-900);
       }
       .toolbar-btn:active:not([disabled]) {
-        background: var(--gray-100);
-        transform: translateY(0);
-        box-shadow: 0 1px 0 rgba(0, 0, 0, 0.02);
+        background: var(--gray-200);
       }
       .toolbar-btn[disabled] {
-        opacity: 0.5;
+        opacity: 0.4;
         cursor: not-allowed;
       }
-      /* active 态 — 当前模式按钮高亮(明细 / 图表 切换) */
+      /* active 态 — 当前模式按钮高亮 */
       .toolbar-btn[data-active='true'] {
         background: var(--primary-bg);
-        border-color: var(--primary);
         color: var(--primary);
       }
-      /* .toolbar-btn--icon 已删除(2026-05-10):设置按钮重新加回文字标签,无人再用 */
-      /* P5+ icon-only 按钮 — 撤销 / 重做 用,挤掉文字标签节省横向空间 */
       .toolbar-btn--icon-only {
         padding: 0;
         width: 32px;
         justify-content: center;
       }
 
-      /* P5+ Toolbar 分段控件 — 查询模式 / 显示模式 切换用 */
+      /* 分段控件 — 轻量 pill 滑块风格(无外框,灰色 track) */
       .toolbar__segmented {
         display: inline-flex;
         align-items: stretch;
         height: 32px;
-        border: 1px solid var(--gray-200);
         border-radius: var(--r-md);
-        overflow: hidden;
-        background: #fff;
+        background: var(--gray-100);
+        gap: 2px;
+        padding: 2px;
       }
       .toolbar__segmented[data-disabled='true'] {
-        opacity: 0.5;
+        opacity: 0.45;
       }
       .toolbar__segmented-btn {
         display: inline-flex;
@@ -464,23 +483,21 @@
         min-width: 56px;
         padding: 0 12px;
         border: none;
+        border-radius: calc(var(--r-md) - 1px);
         background: transparent;
         cursor: pointer;
         font-family: inherit;
         font-size: var(--fs-md);
-        color: var(--gray-700);
-        transition: background var(--tr-fast), color var(--tr-fast);
-      }
-      .toolbar__segmented-btn:not(:last-child) {
-        border-right: 1px solid var(--gray-200);
+        color: var(--gray-600);
+        transition: background var(--tr-fast), color var(--tr-fast), box-shadow var(--tr-fast);
       }
       .toolbar__segmented-btn[data-active='true'] {
-        background: var(--primary-bg);
-        color: var(--primary);
+        background: #fff;
+        color: var(--gray-900);
         font-weight: 600;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.06);
       }
       .toolbar__segmented-btn:hover:not([data-active='true']):not([disabled]) {
-        background: var(--gray-50);
         color: var(--gray-900);
       }
       .toolbar__segmented-btn[disabled] {
@@ -498,18 +515,18 @@
       .toolbar-chart-type {
         height: 32px;
         padding: 0 var(--space-2);
-        border: 1px solid var(--gray-200);
+        border: none;
         border-radius: var(--r-md);
-        background: #fff;
+        background: transparent;
         font-size: var(--fs-md);
         font-family: inherit;
         color: var(--gray-700);
         cursor: pointer;
         outline: none;
-        transition: border-color var(--tr-fast);
+        transition: background var(--tr-fast);
       }
-      .toolbar-chart-type:hover { border-color: var(--primary); }
-      .toolbar-chart-type:focus { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-bg); }
+      .toolbar-chart-type:hover { background: var(--gray-100); }
+      .toolbar-chart-type:focus { box-shadow: 0 0 0 3px var(--primary-bg); }
 
       /* toolbar-btn--primary 已删除(2026-05-10):刷新按钮去主蓝,主蓝色保留给真"提交"型动作
          (config 管理弹窗的"保存"按钮)。常规高频操作不应吃主蓝。 */
@@ -830,59 +847,62 @@
        * ============================================================ */
       .field-tree__search {
         width: 100%;
-        height: 30px;
+        height: 32px;
         box-sizing: border-box;
         padding: 0 var(--space-3);
         margin-bottom: var(--space-3);
         border: 1px solid var(--gray-200);
-        border-radius: var(--r-md);
-        font-size: var(--fs-md);
+        border-radius: var(--r-lg);
+        font-size: var(--fs-sm);
         font-family: inherit;
         outline: none;
-        background: #fff;
-        transition: border-color var(--tr-fast), box-shadow var(--tr-fast);
+        background: var(--gray-50);
+        transition: border-color var(--tr-fast), box-shadow var(--tr-fast), background var(--tr-fast);
       }
       .field-tree__search:focus {
         border-color: var(--primary);
+        background: #fff;
         box-shadow: 0 0 0 3px var(--primary-bg);
       }
+      .field-tree__search::placeholder { color: var(--gray-400); }
       .field-tree__folder { margin: var(--space-2) 0; }
       .field-tree__folder-label {
         font-weight: 600;
-        font-size: var(--fs-xs);
+        font-size: var(--fs-sm);
         color: var(--gray-500);
-        margin: var(--space-2) 0 var(--space-1);
-        text-transform: uppercase;
-        letter-spacing: 0.6px;
-        /* P5+ 可点折叠 */
+        margin: var(--space-3) 0 var(--space-1);
+        text-transform: none;
+        letter-spacing: normal;
         cursor: pointer;
         user-select: none;
         display: flex;
         align-items: center;
         gap: 4px;
-        padding: 2px 4px;
+        padding: 3px 4px;
         border-radius: var(--r-sm);
-        transition: background var(--tr-fast);
+        transition: background var(--tr-fast), color var(--tr-fast);
       }
-      .field-tree__folder-label:hover { background: var(--gray-100); }
+      .field-tree__folder-label:hover { background: var(--gray-100); color: var(--gray-700); }
       .field-tree__folder-label:focus-visible {
         outline: 2px solid var(--primary);
         outline-offset: -2px;
       }
       .field-tree__folder-chevron,
       .field-tree__hierarchy-chevron {
-        font-size: 10px;
+        font-size: 9px;
         color: var(--gray-400);
         line-height: 1;
-        width: 10px;
-        display: inline-block;
-        text-align: center;
+        width: 14px;
+        height: 14px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 3px;
+        flex-shrink: 0;
       }
       .field-tree__hierarchy-chevron {
         cursor: pointer;
         margin-right: 4px;
-        padding: 2px;
-        border-radius: 3px;
         flex: 0 0 auto;
       }
       .field-tree__hierarchy-chevron:hover { background: var(--gray-100); }
@@ -894,35 +914,42 @@
       .field-tree__hierarchy { margin: 1px 0; }
       .field-tree__hierarchy > .field-tree__field-label {
         cursor: grab;
-        padding: 5px var(--space-2);
+        padding: 6px var(--space-2);
         border-radius: var(--r-sm);
         font-size: var(--fs-md);
         font-weight: 500;
         color: var(--gray-800);
-        transition: background var(--tr-fast);
+        transition: background var(--tr-fast), box-shadow var(--tr-fast);
         user-select: none;
         display: flex;
         align-items: center;
       }
-      .field-tree__hierarchy > .field-tree__field-label:hover { background: var(--primary-bg); }
+      .field-tree__hierarchy > .field-tree__field-label:hover {
+        background: var(--primary-bg);
+        box-shadow: inset 3px 0 0 var(--primary);
+      }
       .field-tree__hierarchy > .field-tree__field-label:active { background: var(--primary-bg-strong); }
       .field-tree__hierarchy-children {
         padding-left: var(--space-3);
-        border-left: 1px dashed var(--gray-200);
+        border-left: 1px solid var(--gray-200);
         margin-left: 8px;
       }
       .field-tree__field {
         cursor: grab;
-        padding: 5px var(--space-2);
+        padding: 6px var(--space-2);
         border-radius: var(--r-sm);
         font-size: var(--fs-md);
         color: var(--gray-700);
-        transition: background var(--tr-fast);
+        transition: background var(--tr-fast), box-shadow var(--tr-fast);
         user-select: none;
         display: flex;
         align-items: center;
       }
-      .field-tree__field:hover { background: var(--primary-bg); color: var(--gray-900); }
+      .field-tree__field:hover {
+        background: var(--primary-bg);
+        color: var(--gray-900);
+        box-shadow: inset 3px 0 0 var(--primary);
+      }
       .field-tree__field:active { background: var(--primary-bg-strong); }
       /* P5+ 字段在用 checkbox(opt-in:fieldUsage + onFieldToggle 都传了才出现) */
       .field-tree__checkbox {
@@ -938,8 +965,9 @@
       .field-tree__field[data-draggable="false"] {
         color: var(--gray-400);
         cursor: not-allowed;
+        box-shadow: none;
       }
-      .field-tree__field[data-draggable="false"]:hover { background: transparent; }
+      .field-tree__field[data-draggable="false"]:hover { background: transparent; box-shadow: none; }
 
       /* 字段类型 icon — 16px 方形彩色徽章
        *   维度 Dimension  Aa  灰   "文本字段"(Tableau 风格)
@@ -954,10 +982,10 @@
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        width: 18px;
-        height: 16px;
-        margin-right: 6px;
-        border-radius: 3px;
+        width: 20px;
+        height: 18px;
+        margin-right: 8px;
+        border-radius: 4px;
         font-size: 10px;
         font-weight: 700;
         line-height: 1;
@@ -3087,52 +3115,79 @@
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: var(--space-3) var(--space-4);
-        border-bottom: 1px solid var(--gray-200);
+        padding: var(--space-4) var(--space-4) var(--space-3);
       }
       .settings-modal__title {
-        font-size: var(--fs-md);
+        font-size: var(--fs-lg);
         font-weight: 600;
         color: var(--gray-900);
       }
       .settings-modal__close {
-        width: 24px;
-        height: 24px;
+        width: 28px;
+        height: 28px;
         background: transparent;
         border: none;
         border-radius: var(--r-sm);
-        font-size: 20px;
+        font-size: 18px;
         line-height: 1;
-        color: var(--gray-500);
+        color: var(--gray-400);
         cursor: pointer;
         font-family: inherit;
+        transition: background var(--tr-fast), color var(--tr-fast);
       }
       .settings-modal__close:hover {
         background: var(--gray-100);
-        color: var(--gray-800);
+        color: var(--gray-700);
       }
       .settings-modal__body {
-        padding: var(--space-3) var(--space-4);
+        padding: 0 var(--space-4) var(--space-4);
         display: flex;
         flex-direction: column;
-        gap: var(--space-2);
+        gap: 2px;
+        overflow-y: auto;
       }
       .settings-modal__row {
         display: flex;
         align-items: center;
-        gap: 8px;
-        font-size: var(--fs-sm);
+        gap: 10px;
+        font-size: var(--fs-md);
         color: var(--gray-800);
         cursor: pointer;
-        padding: 4px 0;
+        padding: 10px 0;
       }
+      /* toggle switch — iOS 风格 */
       .settings-modal__row input[type='checkbox'] {
+        appearance: none;
         margin: 0;
+        width: 38px;
+        height: 22px;
+        background: var(--gray-200);
+        border-radius: 11px;
+        position: relative;
         cursor: pointer;
+        transition: background var(--tr-fast);
+        flex-shrink: 0;
       }
-      /* adhoc 顶部快速筛选条已删除(2026-05-10)— 改成走列头右键菜单"按值过滤"等 */
+      .settings-modal__row input[type='checkbox']::after {
+        content: '';
+        position: absolute;
+        top: 2px;
+        left: 2px;
+        width: 18px;
+        height: 18px;
+        background: #fff;
+        border-radius: 50%;
+        transition: transform var(--tr-fast);
+        box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+      }
+      .settings-modal__row input[type='checkbox']:checked {
+        background: var(--primary);
+      }
+      .settings-modal__row input[type='checkbox']:checked::after {
+        transform: translateX(16px);
+      }
 
-      /* P5+ disabled 设置项(adhoc 下不生效)— 灰显 + cursor 反馈 */
+      /* disabled 设置项(adhoc 下不生效)— 灰显 + cursor 反馈 */
       .settings-modal__row[data-disabled="true"] {
         opacity: 0.45;
         cursor: not-allowed;
@@ -3141,103 +3196,113 @@
       .settings-modal__mode-btn:disabled {
         cursor: not-allowed;
       }
-      /* P3+ 设置项 — 带 input/select 的行(空值文本 / 行列头模式) */
+      /* 带 input/select 的行(空值文本 / 行列头模式) */
       .settings-modal__row--input {
         cursor: default;
       }
       .settings-modal__row--input > span:first-child {
         flex: 0 0 auto;
         min-width: 80px;
-        color: var(--gray-700);
+        color: var(--gray-600);
+        font-size: var(--fs-sm);
       }
       .settings-modal__row--input select,
-      .settings-modal__row--input input[type='text'] {
+      .settings-modal__row--input input[type='text'],
+      .settings-modal__row--input input[type='number'] {
         flex: 1 1 auto;
-        height: 28px;
+        height: 32px;
         box-sizing: border-box;
-        padding: 0 var(--space-2);
+        padding: 0 var(--space-3);
         border: 1px solid var(--gray-200);
-        border-radius: var(--r-sm);
+        border-radius: var(--r-md);
         font-size: var(--fs-sm);
         font-family: inherit;
-        background: #fff;
+        background: var(--gray-50);
+        transition: border-color var(--tr-fast), box-shadow var(--tr-fast), background var(--tr-fast);
       }
       .settings-modal__row--input select:focus,
-      .settings-modal__row--input input[type='text']:focus {
+      .settings-modal__row--input input[type='text']:focus,
+      .settings-modal__row--input input[type='number']:focus {
         outline: none;
         border-color: var(--primary);
-        box-shadow: 0 0 0 2px var(--primary-bg);
+        background: #fff;
+        box-shadow: 0 0 0 3px var(--primary-bg);
       }
       .settings-modal__inline-input {
         max-width: 120px;
       }
-      /* P3+ 设置面板:模式切换按钮组(表格 / 树状) */
+      /* 设置面板:模式切换按钮组 — pill 滑块风格(同 toolbar) */
       .settings-modal__btn-group {
         display: inline-flex;
-        gap: 0;
-        border: 1px solid var(--gray-200);
-        border-radius: var(--r-sm);
-        overflow: hidden;
-        background: #fff;
+        gap: 2px;
+        background: var(--gray-100);
+        border-radius: var(--r-md);
+        padding: 2px;
       }
       .settings-modal__mode-btn {
         appearance: none;
-        height: 28px;
+        height: 30px;
         padding: 0 var(--space-3);
         border: none;
+        border-radius: calc(var(--r-md) - 1px);
         background: transparent;
         font-size: var(--fs-sm);
         font-family: inherit;
-        color: var(--gray-700);
+        color: var(--gray-600);
         cursor: pointer;
-        transition: background var(--tr-fast), color var(--tr-fast);
-        border-right: 1px solid var(--gray-200);
-      }
-      .settings-modal__mode-btn:last-child {
-        border-right: none;
+        transition: background var(--tr-fast), color var(--tr-fast), box-shadow var(--tr-fast);
       }
       .settings-modal__mode-btn:hover:not([disabled]) {
-        background: var(--primary-bg);
-        color: var(--primary);
+        color: var(--gray-900);
       }
       .settings-modal__mode-btn[data-active='true'] {
-        background: var(--primary);
-        color: #fff;
+        background: #fff;
+        color: var(--gray-900);
         font-weight: 600;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.06);
       }
       .settings-modal__mode-btn[disabled],
       .settings-modal__mode-btn[data-disabled='true'] {
-        background: var(--gray-50);
         color: var(--gray-400);
         cursor: not-allowed;
+      }
+
+      /* 设置面板 section 分隔 */
+      .settings-modal__row[data-testid="settings-showGrandTotal"],
+      .settings-modal__row[data-testid="settings-emptyValueText"],
+      .settings-modal__row[data-testid="settings-panelVisibility"] {
+        border-top: 1px solid var(--gray-100);
+        margin-top: 8px;
+        padding-top: 16px;
       }
 
       /* P3+ 字段树视图模式切换 tabs */
       .field-tree__mode-tabs {
         display: flex;
-        gap: 0;
-        margin-bottom: var(--space-2);
-        border-bottom: 1px solid var(--gray-200);
+        gap: var(--space-1);
+        margin-bottom: var(--space-3);
+        border-bottom: none;
       }
       .field-tree__mode-tab {
         flex: 1 1 auto;
-        height: 28px;
+        height: 30px;
         padding: 0 var(--space-2);
         background: transparent;
         border: none;
-        border-bottom: 2px solid transparent;
+        border-radius: var(--r-md);
         font-size: var(--fs-sm);
         font-family: inherit;
         color: var(--gray-500);
         cursor: pointer;
-        transition: color var(--tr-fast), border-color var(--tr-fast);
+        transition: background var(--tr-fast), color var(--tr-fast);
       }
       .field-tree__mode-tab:hover {
+        background: var(--gray-100);
         color: var(--gray-800);
       }
       .field-tree__mode-tab[data-active='true'] {
-        color: var(--primary);
-        border-bottom-color: var(--primary);
+        background: var(--gray-200);
+        color: var(--gray-900);
         font-weight: 600;
       }
 
