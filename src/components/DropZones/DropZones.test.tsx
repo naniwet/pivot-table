@@ -653,4 +653,36 @@ describe('DropZones — P5+ duplicate chip 视觉警告', () => {
     const valueZone = screen.getByTestId('zone-value');
     expect(within(valueZone).queryByText('⚠')).toBeNull();
   });
+
+  // 用户回归场景:value 区三 chip(销售额 + 销售额(AVG) + 销售额)→
+  // 第 1 和第 3 同 encoded name,以前因 React key 碰撞,第 3 个 chip 复用第 1 个 DOM →
+  // data-duplicate 错位 + 视觉残留(蓝色 focus 边框) → 用户称"幽灵节点"
+  it('value 区第 3 个 chip 跟第 1 个完全同 encoded name → 仍正确标 duplicate(React key 不碰撞)', () => {
+    const vc = buildViewConfig({
+      values: [
+        buildValueField({ measureName: FIELD_IDS.salesMeasure }), // 销售额(默认)
+        buildValueField({ measureName: FIELD_IDS.salesMeasure, aggregator: 'AVG' }), // 销售额(AVG)
+        buildValueField({ measureName: FIELD_IDS.salesMeasure }), // 销售额(默认) — 跟 [0] 撞
+      ],
+    });
+    render(
+      <DropZones
+        viewConfig={vc}
+        metadata={orderModelMetadata}
+        onDrop={vi.fn()}
+        onRemove={vi.fn()}
+      />,
+    );
+    const valueZone = screen.getByTestId('zone-value');
+    const chips = valueZone.querySelectorAll<HTMLElement>('[data-field-tag]');
+    // 顺序:索引 0 是 measure axis sentinel chip(隐式,在 column zone push,这里不会有),
+    // 所以 value zone chip 应该 3 个
+    expect(chips).toHaveLength(3);
+    // 第 1(idx 0)和第 3(idx 2)同 encoded name,但第 3 应该是 duplicate
+    expect(chips[0]!.getAttribute('data-duplicate')).toBeNull();
+    expect(chips[1]!.getAttribute('data-duplicate')).toBeNull();
+    expect(chips[2]!.getAttribute('data-duplicate')).toBe('true');
+    // ⚠ icon 只出现在第 3 个
+    expect(within(valueZone).getAllByText('⚠')).toHaveLength(1);
+  });
 });

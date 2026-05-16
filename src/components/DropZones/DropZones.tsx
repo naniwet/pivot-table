@@ -288,7 +288,12 @@ function ZoneView({
           </span>
         )}
         {fields.map((f, i) => (
-          <Fragment key={f.name}>
+          // React key:用 (encoded name, idx) tuple 防碰撞。
+          // value zone 重复 chip 共享 encoded name(getMeasureFieldName 同算),
+          // 单 f.name 当 key 会让 React 复用旧 DOM → 新 chip 继承旧 chip 的状态 +
+          //   data-duplicate 也错位不应用 → 视觉上是"幽灵蓝色 chip" 而非红色 duplicate。
+          // 业务标识 data-field-tag={f.name} 不变(duplicate 在模型里就是"看得见但不可单独操作")
+          <Fragment key={`${f.name}::${i}`}>
             <span
               className="dropzone__drop-indicator"
               data-testid={`drop-indicator-${zone}-${i}`}
