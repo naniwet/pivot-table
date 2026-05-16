@@ -116,8 +116,13 @@ export type ViewConfigAction =
     }
   | {
       type: 'SET_VALUE_AGGREGATOR';
-      /** 目标 chip 的 encoded fullName(getMeasureFieldName(v)) */
+      /** 目标 chip 的 encoded fullName(getMeasureFieldName(v))— duplicate chip 共享同 chipKey,需配合 chipIdx 精确定位 */
       chipKey: string;
+      /**
+       * P5+ duplicate chip 精确定位:viewConfig.values 里的 idx,优先按 idx 改;
+       * 未传 → fallback 按 chipKey 找第一个 match(向后兼容)
+       */
+      chipIdx?: number;
       /** 新 aggregator;null = 用 metadata 默认 */
       aggregator: import('../types/query.js').Aggregator | null;
     }
@@ -126,9 +131,25 @@ export type ViewConfigAction =
       type: 'SET_QUERY_MODE';
       mode: 'pivot' | 'adhoc';
     }
-  | { type: 'REMOVE_FIELD'; zone: DropZone; fieldName: string }
+  | {
+      type: 'REMOVE_FIELD';
+      zone: DropZone;
+      fieldName: string;
+      /**
+       * P5+ duplicate chip 精确定位:viewConfig.values 里的 idx。
+       * 仅 value zone 用 — duplicate chip 共享同 encoded name,不传则删所有同 name 的(老语义);
+       * row/column/filter zone 字段名唯一,无须 chipIdx
+       */
+      chipIdx?: number;
+    }
   | { type: 'MOVE_FIELD'; zone: DropZone; fieldName: string; direction: MoveDirection }
-  | { type: 'SET_VALUE_QUICK_CALC'; measureName: string; quickCalc: QuickCalculation | null }
+  | {
+      type: 'SET_VALUE_QUICK_CALC';
+      measureName: string;
+      quickCalc: QuickCalculation | null;
+      /** P5+ duplicate chip 精确定位;同 SET_VALUE_AGGREGATOR.chipIdx */
+      chipIdx?: number;
+    }
   | { type: 'SET_FILTERS'; filters: ClientFilter[] }
   | { type: 'SET_MEASURE_FILTERS'; measureFilters: ClientMeasureFilter[] }
   | { type: 'ADD_CUSTOM_FIELD'; field: CustomField }
@@ -233,13 +254,21 @@ export function viewConfigReducer(
       };
     }
     case 'SET_VALUE_AGGREGATOR': {
-      // 替换指定 chip(encoded chipKey)的 aggregator
-      const idx = state.values.findIndex(
-        (v) =>
-          // chipKey 是 encoded full name 含 aggregator/quickCalc 信息
-          // getMeasureFieldName(v) 在 reducer 内不能直接 import 循环;手动重建键
-          measureFieldNameOf(v) === action.chipKey,
-      );
+      // 替换指定 chip 的 aggregator。
+      // 优先按 chipIdx 精确定位(duplicate chip 共享同 chipKey,findIndex 撞了会改错 chip);
+      // 未传 chipIdx → fallback 按 chipKey 找第一个 match(向后兼容老调用 / 单 chip 场景)
+      let idx: number;
+      if (
+        action.chipIdx !== undefined &&
+        action.chipIdx >= 0 &&
+        action.chipIdx < state.values.length &&
+        // 防御:idx 处 chip 必须确实是这个 chipKey,否则 chipIdx 跟 state 不同步(stale)
+        measureFieldNameOf(state.values[action.chipIdx]!) === action.chipKey
+      ) {
+        idx = action.chipIdx;
+      } else {
+        idx = state.values.findIndex((v) => measureFieldNameOf(v) === action.chipKey);
+      }
       if (idx < 0) return state;
       const next = state.values.slice();
       next[idx] = { ...next[idx]!, aggregator: action.aggregator };
@@ -358,11 +387,11 @@ export function viewConfigReducer(
         { sourceZone: action.sourceZone, chipKey: action.chipKey },
       );
     case 'REMOVE_FIELD':
-      return removeFieldFromZone(state, action.zone, action.fieldName);
+      return removeFieldFromZone(state, action.zone, action.fieldName, action.chipIdx);
     case 'MOVE_FIELD':
       return moveFieldInZone(state, action.zone, action.fieldName, action.direction);
     case 'SET_VALUE_QUICK_CALC':
-      return setValueQuickCalc(state, action.measureName, action.quickCalc);
+      return setValueQuickCalc(state, action.measureName, action.quickCalc, action.chipIdx);
     case 'SET_FILTERS':
       return setFilters(state, action.filters);
     case 'SET_MEASURE_FILTERS':

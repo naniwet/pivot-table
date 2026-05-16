@@ -734,3 +734,118 @@ describe('useViewConfig — history (P5+)', () => {
     expect(onChange.mock.calls[1]![0].values).toHaveLength(1);
   });
 });
+
+// ============================================================
+// P5+ duplicate chip 精确定位 — SET_VALUE_AGGREGATOR / SET_VALUE_QUICK_CALC / REMOVE_FIELD 用 chipIdx
+// ============================================================
+describe('useViewConfig — duplicate chip 精确定位 (chipIdx)', () => {
+  const baseDup = () =>
+    buildViewConfig({
+      values: [
+        buildValueField({ measureName: MEASURE }), // idx 0
+        buildValueField({ measureName: MEASURE }), // idx 1 — duplicate
+      ],
+    });
+
+  it('SET_VALUE_AGGREGATOR + chipIdx=1 → 改的是 idx 1 chip(不是 findIndex 撞首的 idx 0)', () => {
+    const { result } = renderHook(() =>
+      useViewConfig({ defaultValue: baseDup(), metadata: orderModelMetadata }),
+    );
+    act(() =>
+      result.current[1]({
+        type: 'SET_VALUE_AGGREGATOR',
+        chipKey: MEASURE, // 两个 chip encoded name 都是 MEASURE
+        chipIdx: 1,
+        aggregator: 'AVG',
+      }),
+    );
+    expect(result.current[0].values[0]!.aggregator).toBeNull(); // idx 0 不变
+    expect(result.current[0].values[1]!.aggregator).toBe('AVG'); // idx 1 改了
+  });
+
+  it('SET_VALUE_AGGREGATOR 不传 chipIdx → fallback findIndex 第一个 match(向后兼容)', () => {
+    const { result } = renderHook(() =>
+      useViewConfig({ defaultValue: baseDup(), metadata: orderModelMetadata }),
+    );
+    act(() =>
+      result.current[1]({
+        type: 'SET_VALUE_AGGREGATOR',
+        chipKey: MEASURE,
+        aggregator: 'AVG',
+      }),
+    );
+    expect(result.current[0].values[0]!.aggregator).toBe('AVG'); // 老语义:撞首
+    expect(result.current[0].values[1]!.aggregator).toBeNull();
+  });
+
+  it('SET_VALUE_QUICK_CALC + chipIdx=1 → 改的是 idx 1 chip', () => {
+    const { result } = renderHook(() =>
+      useViewConfig({ defaultValue: baseDup(), metadata: orderModelMetadata }),
+    );
+    act(() =>
+      result.current[1]({
+        type: 'SET_VALUE_QUICK_CALC',
+        measureName: MEASURE,
+        quickCalc: { _enum: 'PercentOfGrandTotal' } as never,
+        chipIdx: 1,
+      }),
+    );
+    expect(result.current[0].values[0]!.quickCalc).toBeNull();
+    expect(result.current[0].values[1]!.quickCalc).toEqual({ _enum: 'PercentOfGrandTotal' });
+  });
+
+  it('REMOVE_FIELD(value) + chipIdx=1 → 只删 idx 1 chip(老语义会删全部同 encoded)', () => {
+    const { result } = renderHook(() =>
+      useViewConfig({ defaultValue: baseDup(), metadata: orderModelMetadata }),
+    );
+    act(() =>
+      result.current[1]({
+        type: 'REMOVE_FIELD',
+        zone: 'value',
+        fieldName: MEASURE,
+        chipIdx: 1,
+      }),
+    );
+    expect(result.current[0].values).toHaveLength(1); // 留 1 个
+    expect(result.current[0].values[0]!.measureName).toBe(MEASURE);
+  });
+
+  it('REMOVE_FIELD(value) 不传 chipIdx → 老语义删所有同 encoded(向后兼容)', () => {
+    const { result } = renderHook(() =>
+      useViewConfig({ defaultValue: baseDup(), metadata: orderModelMetadata }),
+    );
+    act(() =>
+      result.current[1]({
+        type: 'REMOVE_FIELD',
+        zone: 'value',
+        fieldName: MEASURE,
+      }),
+    );
+    expect(result.current[0].values).toHaveLength(0); // 全删了
+  });
+
+  it('chipIdx 越界 / stale(idx 处 chip 不匹配 chipKey)→ fallback findIndex', () => {
+    const { result } = renderHook(() =>
+      useViewConfig({
+        defaultValue: buildViewConfig({
+          values: [
+            buildValueField({ measureName: MEASURE }),
+            buildValueField({ measureName: MEASURE, aggregator: 'AVG' }), // idx 1 是 AVG
+          ],
+        }),
+        metadata: orderModelMetadata,
+      }),
+    );
+    // chipIdx=1 但 chipKey=MEASURE(无 AGG),不匹配 → fallback findIndex 找 idx 0
+    act(() =>
+      result.current[1]({
+        type: 'SET_VALUE_AGGREGATOR',
+        chipKey: MEASURE,
+        chipIdx: 1,
+        aggregator: 'MAX',
+      }),
+    );
+    expect(result.current[0].values[0]!.aggregator).toBe('MAX'); // fallback 改了 idx 0
+    expect(result.current[0].values[1]!.aggregator).toBe('AVG'); // idx 1 没动
+  });
+});

@@ -207,7 +207,8 @@ describe('DropZones — remove field', () => {
     const user = userEvent.setup();
     const removeBtn = screen.getByTestId(`remove-row-${FIELD_IDS.shipRegionHierarchy}`);
     await user.click(removeBtn);
-    expect(onRemove).toHaveBeenCalledWith('row', FIELD_IDS.shipRegionHierarchy);
+    // P5+ 第 3 参 chipIdx — 行 zone 单 chip → idx 0
+    expect(onRemove).toHaveBeenCalledWith('row', FIELD_IDS.shipRegionHierarchy, 0);
   });
 
   it('renders remove button for value zone with measureName', async () => {
@@ -225,7 +226,7 @@ describe('DropZones — remove field', () => {
     );
     const user = userEvent.setup();
     await user.click(screen.getByTestId(`remove-value-${FIELD_IDS.salesMeasure}`));
-    expect(onRemove).toHaveBeenCalledWith('value', FIELD_IDS.salesMeasure);
+    expect(onRemove).toHaveBeenCalledWith('value', FIELD_IDS.salesMeasure, 0);
   });
 });
 
@@ -347,7 +348,7 @@ describe('DropZones — zone 间互拖 (P2)', () => {
 });
 
 describe('DropZones — chip 右键菜单事件 (P2 重构)', () => {
-  it('chip 右键 → onTagContextMenu 收到 (zone, fieldName, fieldType, x, y)', () => {
+  it('chip 右键 → onTagContextMenu 收到 (zone, fieldName, fieldType, chipIdx, x, y)', () => {
     const onCtx = vi.fn();
     const vc = buildViewConfig({
       columns: [{ fieldName: 'A', type: 'Dimension' }],
@@ -365,10 +366,12 @@ describe('DropZones — chip 右键菜单事件 (P2 重构)', () => {
     tag.dispatchEvent(
       new MouseEvent('contextmenu', { bubbles: true, clientX: 50, clientY: 80 }),
     );
+    // P5+ 加 chipIdx — duplicate chip 精确定位
     expect(onCtx).toHaveBeenCalledWith({
       zone: 'column',
       fieldName: 'A',
       fieldType: 'Dimension',
+      chipIdx: 0,
       x: 50,
       y: 80,
     });
@@ -584,7 +587,7 @@ describe('DropZones — filter zone 递归展开 group (P5+)', () => {
       />,
     );
     fireEvent.click(screen.getByTestId(`remove-filter-${FIELD_IDS.provinceLevel}`));
-    expect(onRemove).toHaveBeenCalledWith('filter', FIELD_IDS.provinceLevel);
+    expect(onRemove).toHaveBeenCalledWith('filter', FIELD_IDS.provinceLevel, 0);
   });
 });
 

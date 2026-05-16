@@ -521,8 +521,10 @@ function PivotTableInner({
     setDraggingFieldType(null);
   };
 
-  const handleRemove = (zone: DropZone, fieldName: string) => {
-    dispatch({ type: 'REMOVE_FIELD', zone, fieldName });
+  const handleRemove = (zone: DropZone, fieldName: string, chipIdx?: number) => {
+    // P5+ chipIdx 给 value zone duplicate chip 精确定位用,reducer 优先按 idx 删;
+    // row/column/filter zone 字段名唯一,chipIdx 在 reducer 内被忽略(走老逻辑)
+    dispatch({ type: 'REMOVE_FIELD', zone, fieldName, chipIdx });
   };
 
   // P5+ FieldTree checkbox 切换逻辑(opt-in:fieldUsage + onFieldToggle 必须配对传给 FieldTree)

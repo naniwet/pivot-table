@@ -39,6 +39,12 @@ export interface TagMenuTarget {
   zone: DropZone;
   fieldName: string;
   fieldType: FieldType;
+  /**
+   * P5+ duplicate chip 精确定位 — chip 在 zone 数组中的 idx。
+   * value zone 多 chip 共享 encoded name 时,reducer 优先按 idx 改,避免 findIndex 撞首。
+   * 老 caller 不传 → reducer fallback 按 chipKey 找第一个 match。
+   */
+  chipIdx?: number;
   x: number;
   y: number;
 }
@@ -189,7 +195,14 @@ export function useTagMenu(opts: UseTagMenuOptions): ContextMenuItem[] {
           onClick: () => {
             if (isCurrent) return;
             const next = a === metadataDefault ? null : a;
-            dispatch({ type: 'SET_VALUE_AGGREGATOR', chipKey, aggregator: next });
+            // P5+ duplicate chip:传 chipIdx 让 reducer 精确改用户点的 chip,
+            // 避免 findIndex 撞首改成别人(chip 1 显示成 AVG、用户点的 chip 2 没动)
+            dispatch({
+              type: 'SET_VALUE_AGGREGATOR',
+              chipKey,
+              chipIdx: tagMenu.chipIdx,
+              aggregator: next,
+            });
           },
         };
       });
@@ -212,7 +225,13 @@ export function useTagMenu(opts: UseTagMenuOptions): ContextMenuItem[] {
           : null;
 
       const setQc = (payload: QuickCalculation | null) => {
-        dispatch({ type: 'SET_VALUE_QUICK_CALC', measureName: fieldName, quickCalc: payload });
+        // P5+ duplicate chip:传 chipIdx 让 reducer 精确改用户点的 chip
+        dispatch({
+          type: 'SET_VALUE_QUICK_CALC',
+          measureName: fieldName,
+          quickCalc: payload,
+          chipIdx: tagMenu.chipIdx,
+        });
       };
 
       const qcChildren: ContextMenuItem[] = [];
@@ -280,6 +299,7 @@ export function useTagMenu(opts: UseTagMenuOptions): ContextMenuItem[] {
               type: 'SET_VALUE_QUICK_CALC',
               measureName: fieldName,
               quickCalc: null,
+              chipIdx: tagMenu.chipIdx,
             }),
         });
       }

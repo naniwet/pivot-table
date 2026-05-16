@@ -90,7 +90,12 @@ export interface DropZonesProps {
     /** P3+ chip 内部拖动用:sourceZone + chipKey 用于精确 reorder */
     extra?: { sourceZone?: DropZone; chipKey?: string },
   ) => void;
-  onRemove: (zone: DropZone, fieldName: string) => void;
+  /**
+   * × 删除单 chip 回调。第 3 参数 chipIdx 是 chip 在该 zone 数组的 index —
+   * P5+ duplicate chip 精确定位用(value zone 重复时 encoded name 撞,需 idx 区分)。
+   * 老 caller 不用 chipIdx,默认按 fieldName 删第一个 match(向后兼容)。
+   */
+  onRemove: (zone: DropZone, fieldName: string, chipIdx?: number) => void;
   /** P1.0：设置 measure 的 quickCalc（来自数值区 tag 上的菜单） */
   onSetQuickCalc?: (measureName: string, quickCalc: QuickCalculation | null) => void;
   /**
@@ -111,6 +116,12 @@ export interface DropZonesProps {
     zone: DropZone;
     fieldName: string;
     fieldType: FieldType;
+    /**
+     * P5+ duplicate chip 精确定位:chip 在该 zone 数组中的 index。
+     * 用户场景:value 区两个完全同 measure+agg+qc 的 chip 共享同 encoded name,
+     * 仅靠 fieldName 找会撞 → reducer 拿 chipIdx 精确定位用户点的那个 chip
+     */
+    chipIdx: number;
     x: number;
     y: number;
   }) => void;
@@ -341,6 +352,7 @@ function ZoneView({
                   zone,
                   fieldName: f.name,
                   fieldType: f.fieldType,
+                  chipIdx: i,
                   x: e.clientX,
                   y: e.clientY,
                 });
@@ -396,7 +408,7 @@ function ZoneView({
                 className="dropzone__remove"
                 data-testid={`remove-${zone}-${f.name}`}
                 aria-label={`移除 ${f.alias}`}
-                onClick={() => onRemove(zone, f.name)}
+                onClick={() => onRemove(zone, f.name, i)}
               >
                 ×
               </button>

@@ -59,6 +59,11 @@ export function removeFieldFromZone(
   viewConfig: ViewConfig,
   zone: DropZone,
   fieldName: string,
+  /**
+   * P5+ duplicate chip 精确定位 — value zone 用:同 encoded name 多 chip 时按 idx 删,
+   * 不传则按 encoded name 删所有 match(老语义,向后兼容)。
+   */
+  chipIdx?: number,
 ): ViewConfig {
   switch (zone) {
     case 'row':
@@ -69,16 +74,33 @@ export function removeFieldFromZone(
         columns: viewConfig.columns.filter((c) => c.fieldName !== fieldName),
       };
     case 'value': {
-      // 优先按 encoded fieldName 精确匹配(支持同 measure 多 aggregator);否则按 measureName 整批清
       const matchEncoded = (v: ValueField): boolean => getMeasureFieldName(v) === fieldName;
-      const exactHit = viewConfig.values.some(matchEncoded);
-      const nextValues = exactHit
-        ? viewConfig.values.filter((v) => !matchEncoded(v))
-        : viewConfig.values.filter((v) => v.measureName !== fieldName);
+
+      // P5+ 优先按 chipIdx 精确删一个 chip(duplicate chip 不一次全删)
+      // 防御:idx 处 chip 必须真的对应 fieldName,否则 chipIdx 跟 state 不同步,fallback 老逻辑
+      let nextValues: ValueField[];
+      let removedMeasureName: string;
+      if (
+        chipIdx !== undefined &&
+        chipIdx >= 0 &&
+        chipIdx < viewConfig.values.length &&
+        (matchEncoded(viewConfig.values[chipIdx]!) ||
+          viewConfig.values[chipIdx]!.measureName === fieldName)
+      ) {
+        removedMeasureName = viewConfig.values[chipIdx]!.measureName;
+        nextValues = viewConfig.values.filter((_, i) => i !== chipIdx);
+      } else {
+        // 老逻辑:按 encoded name 整批删;退化按 measureName 整批清
+        const exactHit = viewConfig.values.some(matchEncoded);
+        nextValues = exactHit
+          ? viewConfig.values.filter((v) => !matchEncoded(v))
+          : viewConfig.values.filter((v) => v.measureName !== fieldName);
+        removedMeasureName = exactHit
+          ? viewConfig.values.find(matchEncoded)?.measureName ?? fieldName
+          : fieldName;
+      }
+
       // 没有同名 measure 残留 → 清掉 orphan sort
-      const removedMeasureName = exactHit
-        ? viewConfig.values.find(matchEncoded)?.measureName ?? fieldName
-        : fieldName;
       const stillHasMeasure = nextValues.some((v) => v.measureName === removedMeasureName);
       return {
         ...viewConfig,
