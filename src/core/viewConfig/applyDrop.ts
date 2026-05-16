@@ -95,7 +95,7 @@ export function applyDrop(
   fieldName: string,
   fieldType: FieldType,
   insertIdx?: number,
-  extra?: { sourceZone?: DropZone; chipKey?: string },
+  extra?: { sourceZone?: DropZone; chipKey?: string; chipIndex?: number },
 ): ViewConfig {
   // P5+ adhoc 模式:走宽松规则(Measure → row 允许,column/value 禁用)
   const mode = viewConfig.queryMode === 'adhoc' ? 'adhoc' : 'pivot';
@@ -126,15 +126,21 @@ export function applyDrop(
   //   - 否则 → APPEND 新 ValueField(允许同 measureName 多 chip)
   if (zone === 'value') {
     const chipKey = extra?.chipKey;
-    if (extra?.sourceZone === 'value' && chipKey) {
-      const origIdx = viewConfig.values.findIndex((v) => getMeasureFieldName(v) === chipKey);
+    const chipIndex = extra?.chipIndex;
+    if (extra?.sourceZone === 'value' && (chipKey || chipIndex !== undefined)) {
+      const origIdx =
+        chipIndex !== undefined && chipIndex >= 0 && chipIndex < viewConfig.values.length
+          ? chipIndex
+          : chipKey
+            ? viewConfig.values.findIndex((v) => getMeasureFieldName(v) === chipKey)
+            : -1;
       if (origIdx >= 0) {
         const item = viewConfig.values[origIdx]!;
         const others = viewConfig.values.filter((_, i) => i !== origIdx);
         const adjIdxLocal = adjustInsertIdxForRemove(origIdx, insertIdx);
         return { ...viewConfig, values: insertAt(others, adjIdxLocal, item) };
       }
-      // chipKey 不在(异常情况)— fallthrough APPEND
+      // chipKey/chipIndex 不在(异常情况)— fallthrough APPEND
     }
     // 字段树拖入 / 跨 zone 拖入 → APPEND;同时清理 row/column 中同名(单字段不能 row + value 并存)
     const cleared = {

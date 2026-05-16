@@ -968,9 +968,11 @@ describe('PivotRenderer — corner 行字段 alias', () => {
 });
 
 // ============================================================
-// P5+ 条件格式化 — row-scope 应用整行
+// P5+ 条件格式化 — row-scope 十字高亮(透视表)
+// 透视表 row-scope:命中 cell + 对应行头 + 对应列头染色,非整行
+// (透视表一行含多列同 measure 不同值,整行染色语义错误)
 // ============================================================
-describe('PivotRenderer — 条件格式化 row-scope(整行高亮)', () => {
+describe('PivotRenderer — 条件格式化 row-scope(十字高亮)', () => {
   function modelWith2Rows() {
     return makeRenderModel({
       columnHeader: [measureColHeader],
@@ -984,7 +986,7 @@ describe('PivotRenderer — 条件格式化 row-scope(整行高亮)', () => {
     });
   }
 
-  it('scope=row threshold 命中 → 整行 td 套样式', () => {
+  it('scope=row threshold 命中 → 命中 cell + 行头 + 列头套样式', () => {
     const vc = buildViewConfig({
       ...baseViewConfig,
       pageState: {
@@ -1010,15 +1012,21 @@ describe('PivotRenderer — 条件格式化 row-scope(整行高亮)', () => {
         onDrillUp={vi.fn()}
       />,
     );
-    // row 0 = 2,000,000 > 1M → 命中,应用样式
+    // row 0 = 2,000,000 > 1M → 命中,cell 套样式
     const r0c0 = screen.getByTestId('cell-r0-c0');
     expect(r0c0).toHaveStyle({ backgroundColor: 'rgb(255, 0, 0)' });
     // row 1 = 500 < 1M → 不命中
     const r1c0 = screen.getByTestId('cell-r1-c0');
     expect(r1c0).not.toHaveStyle({ backgroundColor: 'rgb(255, 0, 0)' });
+    // 行头也套样式
+    expect(screen.getByTestId('row-header-江苏')).toHaveStyle({ backgroundColor: 'rgb(255, 0, 0)' });
+    // 列头也套样式
+    expect(screen.getByTestId(`column-header-${MEASURE}`)).toHaveStyle({
+      backgroundColor: 'rgb(255, 0, 0)',
+    });
   });
 
-  it('row-scope 多列 multi-measure 场景 — 该行所有列(包括非 trigger 列)都套样式', () => {
+  it('row-scope 多列 multi-measure:仅命中的 measure 列染色,同 row 其他列不染', () => {
     // 模拟用户场景:cols=[产品子类×Σ度量],4 个数据列 = 2 产品 × 2 measure
     const otherMeasure = '销售成本_xxx';
     const otherMeasureMeta = { ...measureColMeta, name: otherMeasure, alias: '销售成本' };
@@ -1071,12 +1079,34 @@ describe('PivotRenderer — 条件格式化 row-scope(整行高亮)', () => {
         onDrillUp={vi.fn()}
       />,
     );
-    // 销售额(c=0)= 2500000 > 1M → row 0 命中 → 所有 4 列都应该红
-    for (let c = 0; c < 4; c++) {
-      expect(screen.getByTestId(`cell-r0-c${c}`)).toHaveStyle({
-        backgroundColor: 'rgb(255, 0, 0)',
-      });
-    }
+    // c=0 销售额=2,500,000 > 1M → 命中
+    expect(screen.getByTestId('cell-r0-c0')).toHaveStyle({
+      backgroundColor: 'rgb(255, 0, 0)',
+    });
+    // c=1 销售成本=800,000 → 不命中(measure 不同)
+    expect(screen.getByTestId('cell-r0-c1')).not.toHaveStyle({
+      backgroundColor: 'rgb(255, 0, 0)',
+    });
+    // c=2 销售额=1,500,000 > 1M → 命中
+    expect(screen.getByTestId('cell-r0-c2')).toHaveStyle({
+      backgroundColor: 'rgb(255, 0, 0)',
+    });
+    // c=3 销售成本=500,000 → 不命中(measure 不同)
+    expect(screen.getByTestId('cell-r0-c3')).not.toHaveStyle({
+      backgroundColor: 'rgb(255, 0, 0)',
+    });
+    // 行头命中
+    expect(screen.getByTestId('row-header-江苏')).toHaveStyle({
+      backgroundColor: 'rgb(255, 0, 0)',
+    });
+    // col 0 列头命中
+    const colHeaders0 = screen.getAllByTestId(`column-header-${MEASURE}`);
+    expect(colHeaders0[0]).toHaveStyle({ backgroundColor: 'rgb(255, 0, 0)' });
+    expect(colHeaders0[1]).toHaveStyle({ backgroundColor: 'rgb(255, 0, 0)' });
+    // col 1 列头不命中(销售成本 measure)
+    const colHeaders1 = screen.getAllByTestId(`column-header-${otherMeasure}`);
+    expect(colHeaders1[0]).not.toHaveStyle({ backgroundColor: 'rgb(255, 0, 0)' });
+    expect(colHeaders1[1]).not.toHaveStyle({ backgroundColor: 'rgb(255, 0, 0)' });
   });
 
   it('对比:scope=cell(默认)threshold 同条件 → row 0 命中(对照确认 cell-scope 行为)', () => {

@@ -22,8 +22,8 @@ import { buildRowHeaderSpans } from '../../core/cellSetParser/rowHeaderSpans.js'
 import { computeColRanges } from '../../core/conditionalFormat/computeColRanges.js';
 import { computeTopBottomCutoffs } from '../../core/conditionalFormat/computeTopBottomCutoffs.js';
 import {
-  computeRowScopeStyles,
   evaluateDataBar,
+  evaluateSingleRule,
   evaluateThreshold,
   evaluateTopBottom,
   getRuleScope,
@@ -386,29 +386,42 @@ export function PivotRenderer({
         : null,
     [renderModel, condFormats],
   );
-  // P5+ row-scope styles:rule.scope='row' 的规则预算 Map<rowIdx, style>
-  // 命中 → 该整行所有 cell 都套样式(行表头 + 数据列都拿到)
-  const rowScopeStyles = useMemo(() => {
+  // P5+ row-scope styles: 透视表下每个 cell 独立评估 row-scope 规则
+  // 命中 → 该 cell + 对应行头 + 对应列头染色(十字高亮)而非整行
+  // (透视表一行含多列同 measure 不同值,整行染色语义错误)
+  const rowScopeResult = useMemo(() => {
     if (!renderModel || condFormats.length === 0) return null;
-    // 该 measure 在 matrix 中可能跨多 column tuple — row-scope 只看是否命中,取首个
-    const cellValueAt = (r: number, measure: string): number | null => {
+    const rowRules = condFormats.filter((r) => getRuleScope(r) === 'row');
+    if (rowRules.length === 0) return null;
+
+    const cellStyles = new Map<string, { bg?: string; fg?: string; bold?: boolean }>();
+    const rowStyles = new Map<number, { bg?: string; fg?: string; bold?: boolean }>();
+    const colStyles = new Map<number, { bg?: string; fg?: string; bold?: boolean }>();
+
+    for (let r = 0; r < renderModel.matrix.length; r++) {
       const row = renderModel.matrix[r];
-      if (!row) return null;
+      if (!row) continue;
       for (let c = 0; c < renderModel.columnHeader.length; c++) {
-        if (renderModel.columnHeader[c]?.fieldName !== measure) continue;
+        const colHeader = renderModel.columnHeader[c];
+        if (!colHeader) continue;
         const cell = row[c];
         if (!cell || cell.isEmpty || cell.isMasked) continue;
-        const v = cell.value;
-        if (typeof v === 'number' && Number.isFinite(v)) return v;
+        if (typeof cell.value !== 'number' || !Number.isFinite(cell.value)) continue;
+
+        for (const rule of rowRules) {
+          if (rule.measure !== colHeader.fieldName) continue;
+          const style = evaluateSingleRule(rule, cell.value, topBottomCutoffs ?? new Map());
+          if (style.bg || style.fg || style.bold) {
+            cellStyles.set(`${r},${c}`, style);
+            if (!rowStyles.has(r)) rowStyles.set(r, style);
+            if (!colStyles.has(c)) colStyles.set(c, style);
+            break;
+          }
+        }
       }
-      return null;
-    };
-    return computeRowScopeStyles(
-      condFormats,
-      renderModel.matrix.length,
-      cellValueAt,
-      topBottomCutoffs ?? new Map(),
-    );
+    }
+
+    return { cellStyles, rowStyles, colStyles };
   }, [renderModel, condFormats, topBottomCutoffs]);
   // P3+ 多列行头冻结(P5+ 修复:之前只有 col 0 sticky,多 dim 时其他列滚走)
   // 测量每个 row header 列的 offsetWidth → 算累积 left → 内联到 th style
@@ -772,6 +785,14 @@ export function PivotRenderer({
                   const customWidth = isLast ? columnWidths[cell.fieldName] : undefined;
                   const thStyle: CSSProperties = sortable ? { cursor: 'pointer' } : {};
                   if (customWidth !== undefined) thStyle.width = `${customWidth}px`;
+                  // P5+ row-scope 列头染色:该列有 cell 命中 row-scope 规则 → 列头也套样式
+                  const colScopeStyle =
+                    isLast && !isCollapsedParent ? rowScopeResult?.colStyles.get(cellIdx) : undefined;
+                  if (colScopeStyle) {
+                    if (colScopeStyle.bg) thStyle.backgroundColor = colScopeStyle.bg;
+                    if (colScopeStyle.fg) thStyle.color = colScopeStyle.fg;
+                    if (colScopeStyle.bold) thStyle.fontWeight = 600;
+                  }
                   // P3+ 列树模式 — 非叶 cell 加 toggle(▶ collapsed / ▼ expanded)
                   const showColToggle = colTreeMode && treeCell?.hasChildren && !isLast;
                   const showCollapsedBadge = isCollapsedParent;
@@ -961,8 +982,8 @@ export function PivotRenderer({
                         });
                       }
                     : undefined;
-                // P5+ 行 row-scope 条件格式化 — 行表头也套样式(视觉连贯)
-                const rowScopeForTh = rowScopeStyles?.get(r);
+                // P5+ 行 row-scope 条件格式化 — 行表头也套样式(十字高亮)
+                const rowScopeForTh = rowScopeResult?.rowStyles.get(r);
                 const thInlineStyle: CSSProperties = {};
                 if (stickyLeft !== undefined) thInlineStyle.left = `${stickyLeft}px`;
                 if (rowScopeForTh) {
@@ -1051,13 +1072,13 @@ export function PivotRenderer({
                 let cellInlineStyle: CSSProperties | undefined;
                 let dataBarNode: ReactNode = null;
                 const cellMeasure = colHeader?.fieldName;
-                // P5+ row-scope fallback:命中 → 整行所有 cell 默认套该 style(空 cell 也套)
-                const rowScopeStyle = rowScopeStyles?.get(r);
-                if (rowScopeStyle) {
+                // P5+ row-scope:该 cell 是否独立命中 row-scope 规则
+                const rowScopeForCell = rowScopeResult?.cellStyles.get(`${r},${c}`);
+                if (rowScopeForCell) {
                   cellInlineStyle = {
-                    ...(rowScopeStyle.bg ? { backgroundColor: rowScopeStyle.bg } : {}),
-                    ...(rowScopeStyle.fg ? { color: rowScopeStyle.fg } : {}),
-                    ...(rowScopeStyle.bold ? { fontWeight: 600 } : {}),
+                    ...(rowScopeForCell.bg ? { backgroundColor: rowScopeForCell.bg } : {}),
+                    ...(rowScopeForCell.fg ? { color: rowScopeForCell.fg } : {}),
+                    ...(rowScopeForCell.bold ? { fontWeight: 600 } : {}),
                   };
                 }
                 if (

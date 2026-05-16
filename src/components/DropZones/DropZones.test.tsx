@@ -207,7 +207,7 @@ describe('DropZones — remove field', () => {
     const user = userEvent.setup();
     const removeBtn = screen.getByTestId(`remove-row-${FIELD_IDS.shipRegionHierarchy}`);
     await user.click(removeBtn);
-    expect(onRemove).toHaveBeenCalledWith('row', FIELD_IDS.shipRegionHierarchy);
+    expect(onRemove).toHaveBeenCalledWith('row', FIELD_IDS.shipRegionHierarchy, 0);
   });
 
   it('renders remove button for value zone with measureName', async () => {
@@ -225,7 +225,7 @@ describe('DropZones — remove field', () => {
     );
     const user = userEvent.setup();
     await user.click(screen.getByTestId(`remove-value-${FIELD_IDS.salesMeasure}`));
-    expect(onRemove).toHaveBeenCalledWith('value', FIELD_IDS.salesMeasure);
+    expect(onRemove).toHaveBeenCalledWith('value', FIELD_IDS.salesMeasure, 0);
   });
 });
 
@@ -371,6 +371,7 @@ describe('DropZones — chip 右键菜单事件 (P2 重构)', () => {
       fieldType: 'Dimension',
       x: 50,
       y: 80,
+      chipIndex: 0,
     });
   });
 
@@ -584,7 +585,7 @@ describe('DropZones — filter zone 递归展开 group (P5+)', () => {
       />,
     );
     fireEvent.click(screen.getByTestId(`remove-filter-${FIELD_IDS.provinceLevel}`));
-    expect(onRemove).toHaveBeenCalledWith('filter', FIELD_IDS.provinceLevel);
+    expect(onRemove).toHaveBeenCalledWith('filter', FIELD_IDS.provinceLevel, 0);
   });
 });
 

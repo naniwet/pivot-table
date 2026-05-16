@@ -59,6 +59,8 @@ export function removeFieldFromZone(
   viewConfig: ViewConfig,
   zone: DropZone,
   fieldName: string,
+  /** value zone 同 measure 完全重复 chip 的精确定位索引 */
+  chipIndex?: number,
 ): ViewConfig {
   switch (zone) {
     case 'row':
@@ -69,6 +71,22 @@ export function removeFieldFromZone(
         columns: viewConfig.columns.filter((c) => c.fieldName !== fieldName),
       };
     case 'value': {
+      // chipIndex 提供 → 精确移除该索引(处理同 measure + 同 agg/qc 的完全重复 chip)
+      if (chipIndex !== undefined && chipIndex >= 0 && chipIndex < viewConfig.values.length) {
+        const removed = viewConfig.values[chipIndex]!;
+        const nextValues = viewConfig.values.filter((_, i) => i !== chipIndex);
+        const stillHasMeasure = nextValues.some((v) => v.measureName === removed.measureName);
+        return {
+          ...viewConfig,
+          values: nextValues,
+          rowSorts: stillHasMeasure
+            ? viewConfig.rowSorts
+            : dropOrphanMeasureSort(viewConfig.rowSorts, removed.measureName),
+          columnSorts: stillHasMeasure
+            ? viewConfig.columnSorts
+            : dropOrphanMeasureSort(viewConfig.columnSorts, removed.measureName),
+        };
+      }
       // 优先按 encoded fieldName 精确匹配(支持同 measure 多 aggregator);否则按 measureName 整批清
       const matchEncoded = (v: ValueField): boolean => getMeasureFieldName(v) === fieldName;
       const exactHit = viewConfig.values.some(matchEncoded);

@@ -212,6 +212,7 @@ function PivotTableInner({
     fieldType: FieldType;
     x: number;
     y: number;
+    chipIndex?: number;
   } | null>(null);
 
   // P3: 单元格右键菜单状态(钻取明细等)— 仅在宿主未自定 onCellRightClick 时启用
@@ -507,7 +508,7 @@ function PivotTableInner({
     fieldName: string,
     fieldType: FieldType,
     insertIdx?: number,
-    extra?: { sourceZone?: DropZone; chipKey?: string },
+    extra?: { sourceZone?: DropZone; chipKey?: string; chipIndex?: number },
   ) => {
     dispatch({
       type: 'DROP_FIELD',
@@ -517,12 +518,13 @@ function PivotTableInner({
       insertIdx,
       sourceZone: extra?.sourceZone,
       chipKey: extra?.chipKey,
+      chipIndex: extra?.chipIndex,
     });
     setDraggingFieldType(null);
   };
 
-  const handleRemove = (zone: DropZone, fieldName: string) => {
-    dispatch({ type: 'REMOVE_FIELD', zone, fieldName });
+  const handleRemove = (zone: DropZone, fieldName: string, chipIndex?: number) => {
+    dispatch({ type: 'REMOVE_FIELD', zone, fieldName, chipIndex });
   };
 
   // P5+ FieldTree checkbox 切换逻辑(opt-in:fieldUsage + onFieldToggle 必须配对传给 FieldTree)

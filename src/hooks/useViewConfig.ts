@@ -113,6 +113,7 @@ export type ViewConfigAction =
       /** P3+ value zone 多 chip:chip 内部拖动用 sourceZone + chipKey 精确 reorder */
       sourceZone?: DropZone;
       chipKey?: string;
+      chipIndex?: number;
     }
   | {
       type: 'SET_VALUE_AGGREGATOR';
@@ -120,15 +121,17 @@ export type ViewConfigAction =
       chipKey: string;
       /** 新 aggregator;null = 用 metadata 默认 */
       aggregator: import('../types/query.js').Aggregator | null;
+      /** value zone 同 measure 完全重复 chip 的精确定位索引 */
+      chipIndex?: number;
     }
   | {
       /** P5+ 切查询模式 — 切到 'adhoc' 时迁移 column/value 字段到 row */
       type: 'SET_QUERY_MODE';
       mode: 'pivot' | 'adhoc';
     }
-  | { type: 'REMOVE_FIELD'; zone: DropZone; fieldName: string }
+  | { type: 'REMOVE_FIELD'; zone: DropZone; fieldName: string; chipIndex?: number }
   | { type: 'MOVE_FIELD'; zone: DropZone; fieldName: string; direction: MoveDirection }
-  | { type: 'SET_VALUE_QUICK_CALC'; measureName: string; quickCalc: QuickCalculation | null }
+  | { type: 'SET_VALUE_QUICK_CALC'; measureName: string; quickCalc: QuickCalculation | null; chipIndex?: number }
   | { type: 'SET_FILTERS'; filters: ClientFilter[] }
   | { type: 'SET_MEASURE_FILTERS'; measureFilters: ClientMeasureFilter[] }
   | { type: 'ADD_CUSTOM_FIELD'; field: CustomField }
@@ -233,13 +236,17 @@ export function viewConfigReducer(
       };
     }
     case 'SET_VALUE_AGGREGATOR': {
-      // 替换指定 chip(encoded chipKey)的 aggregator
-      const idx = state.values.findIndex(
-        (v) =>
-          // chipKey 是 encoded full name 含 aggregator/quickCalc 信息
-          // getMeasureFieldName(v) 在 reducer 内不能直接 import 循环;手动重建键
-          measureFieldNameOf(v) === action.chipKey,
-      );
+      // chipIndex 提供 → 精确定位(同 measure + 同 agg/qc 的完全重复 chip)
+      const idx =
+        action.chipIndex !== undefined &&
+        action.chipIndex >= 0 &&
+        action.chipIndex < state.values.length
+          ? action.chipIndex
+          : state.values.findIndex(
+              (v) =>
+                // chipKey 是 encoded full name 含 aggregator/quickCalc 信息
+                measureFieldNameOf(v) === action.chipKey,
+            );
       if (idx < 0) return state;
       const next = state.values.slice();
       next[idx] = { ...next[idx]!, aggregator: action.aggregator };
@@ -355,14 +362,14 @@ export function viewConfigReducer(
         action.fieldName,
         action.fieldType,
         action.insertIdx,
-        { sourceZone: action.sourceZone, chipKey: action.chipKey },
+        { sourceZone: action.sourceZone, chipKey: action.chipKey, chipIndex: action.chipIndex },
       );
     case 'REMOVE_FIELD':
-      return removeFieldFromZone(state, action.zone, action.fieldName);
+      return removeFieldFromZone(state, action.zone, action.fieldName, action.chipIndex);
     case 'MOVE_FIELD':
       return moveFieldInZone(state, action.zone, action.fieldName, action.direction);
     case 'SET_VALUE_QUICK_CALC':
-      return setValueQuickCalc(state, action.measureName, action.quickCalc);
+      return setValueQuickCalc(state, action.measureName, action.quickCalc, action.chipIndex);
     case 'SET_FILTERS':
       return setFilters(state, action.filters);
     case 'SET_MEASURE_FILTERS':

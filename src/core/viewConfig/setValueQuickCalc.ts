@@ -18,10 +18,17 @@ export function setValueQuickCalc(
   viewConfig: ViewConfig,
   measureName: string,
   quickCalc: QuickCalculation | null,
+  /** value zone 同 measure 完全重复 chip 的精确定位索引 */
+  chipIndex?: number,
 ): ViewConfig {
-  // 优先按 encoded full name 精确匹配
-  let idx = viewConfig.values.findIndex((v) => getMeasureFieldName(v) === measureName);
-  if (idx < 0) idx = viewConfig.values.findIndex((v) => v.measureName === measureName);
+  let idx: number;
+  if (chipIndex !== undefined && chipIndex >= 0 && chipIndex < viewConfig.values.length) {
+    idx = chipIndex;
+  } else {
+    // 优先按 encoded full name 精确匹配
+    idx = viewConfig.values.findIndex((v) => getMeasureFieldName(v) === measureName);
+    if (idx < 0) idx = viewConfig.values.findIndex((v) => v.measureName === measureName);
+  }
   if (idx < 0) {
     throw new Error(`[setValueQuickCalc] measure "${measureName}" not in values`);
   }

@@ -18,6 +18,8 @@ export interface PivotFieldDragPayload {
   sourceZone?: DropZone;
   /** value chip 的 encoded 唯一标识 — 同 measure 多 chip 时定位 */
   chipKey?: string;
+  /** value chip 的数组索引 — 同 measure + 同 agg/qc 的完全重复 chip 精确定位 */
+  chipIndex?: number;
 }
 
 export function encodePivotField(payload: PivotFieldDragPayload): string {

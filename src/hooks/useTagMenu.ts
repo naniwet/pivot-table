@@ -41,6 +41,8 @@ export interface TagMenuTarget {
   fieldType: FieldType;
   x: number;
   y: number;
+  /** value zone 同 measure 完全重复 chip 的数组索引 */
+  chipIndex?: number;
 }
 
 function isNumericFieldByName(metaIndex: MetadataIndex, fieldName: string): boolean {
@@ -70,7 +72,7 @@ export function useTagMenu(opts: UseTagMenuOptions): ContextMenuItem[] {
 
   return useMemo<ContextMenuItem[]>(() => {
     if (!tagMenu) return [];
-    const { zone, fieldName, fieldType } = tagMenu;
+    const { zone, fieldName, fieldType, chipIndex } = tagMenu;
     const isMeasure = fieldType === 'Measure' || fieldType === 'CalcMeasure';
     const sortKind: 'ByMeasure' | 'ByDimension' = isMeasure ? 'ByMeasure' : 'ByDimension';
 
@@ -189,7 +191,7 @@ export function useTagMenu(opts: UseTagMenuOptions): ContextMenuItem[] {
           onClick: () => {
             if (isCurrent) return;
             const next = a === metadataDefault ? null : a;
-            dispatch({ type: 'SET_VALUE_AGGREGATOR', chipKey, aggregator: next });
+            dispatch({ type: 'SET_VALUE_AGGREGATOR', chipKey, aggregator: next, chipIndex });
           },
         };
       });
@@ -212,7 +214,7 @@ export function useTagMenu(opts: UseTagMenuOptions): ContextMenuItem[] {
           : null;
 
       const setQc = (payload: QuickCalculation | null) => {
-        dispatch({ type: 'SET_VALUE_QUICK_CALC', measureName: fieldName, quickCalc: payload });
+        dispatch({ type: 'SET_VALUE_QUICK_CALC', measureName: fieldName, quickCalc: payload, chipIndex });
       };
 
       const qcChildren: ContextMenuItem[] = [];
@@ -280,6 +282,7 @@ export function useTagMenu(opts: UseTagMenuOptions): ContextMenuItem[] {
               type: 'SET_VALUE_QUICK_CALC',
               measureName: fieldName,
               quickCalc: null,
+              chipIndex,
             }),
         });
       }
@@ -358,7 +361,7 @@ export function useTagMenu(opts: UseTagMenuOptions): ContextMenuItem[] {
     items.push({
       key: 'remove',
       label: '从此区域移除',
-      onClick: () => dispatch({ type: 'REMOVE_FIELD', zone, fieldName }),
+      onClick: () => dispatch({ type: 'REMOVE_FIELD', zone, fieldName, chipIndex }),
     });
 
     return items;

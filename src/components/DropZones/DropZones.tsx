@@ -88,9 +88,9 @@ export interface DropZonesProps {
     fieldType: FieldType,
     insertIdx?: number,
     /** P3+ chip 内部拖动用:sourceZone + chipKey 用于精确 reorder */
-    extra?: { sourceZone?: DropZone; chipKey?: string },
+    extra?: { sourceZone?: DropZone; chipKey?: string; chipIndex?: number },
   ) => void;
-  onRemove: (zone: DropZone, fieldName: string) => void;
+  onRemove: (zone: DropZone, fieldName: string, chipIndex?: number) => void;
   /** P1.0：设置 measure 的 quickCalc（来自数值区 tag 上的菜单） */
   onSetQuickCalc?: (measureName: string, quickCalc: QuickCalculation | null) => void;
   /**
@@ -113,6 +113,7 @@ export interface DropZonesProps {
     fieldType: FieldType;
     x: number;
     y: number;
+    chipIndex?: number;
   }) => void;
   /** P3: 行列互换按钮回调;不传则不渲染该按钮 */
   onSwapRowsColumns?: () => void;
@@ -136,6 +137,8 @@ const ZONE_LABELS: Record<DropZone, string> = {
 };
 
 interface FieldTag {
+  /** chip 数组索引(同 measure 重复 chip 精确定位 / React key 去重) */
+  index: number;
   /** chip 唯一标识(用于 React key / remove / 右键菜单);value zone 是 encoded full name */
   name: string;
   /** 跨 zone 拖动时编码到 dataTransfer 的 fieldName(value zone 用 base measureName) */
@@ -259,6 +262,7 @@ function ZoneView({
     onDrop(zone, payload.fieldName, payload.fieldType, idx ?? undefined, {
       sourceZone: payload.sourceZone,
       chipKey: payload.chipKey,
+      chipIndex: payload.chipIndex,
     });
   };
 
@@ -288,7 +292,7 @@ function ZoneView({
           </span>
         )}
         {fields.map((f, i) => (
-          <Fragment key={f.name}>
+          <Fragment key={`${zone}-${f.name}-${i}`}>
             <span
               className="dropzone__drop-indicator"
               data-testid={`drop-indicator-${zone}-${i}`}
@@ -312,7 +316,7 @@ function ZoneView({
               onDragStart={(e) => {
                 try {
                   // 跨 zone 拖动:fieldName 用 dragFieldName(value zone 是 base measureName,其他 zone 同 name)
-                  // 内部 reorder 用:sourceZone + chipKey(value zone chip 唯一标识)
+                  // 内部 reorder 用:sourceZone + chipKey + chipIndex(value zone chip 唯一标识)
                   e.dataTransfer.setData(
                     PIVOT_FIELD_MIME,
                     encodePivotField({
@@ -320,6 +324,7 @@ function ZoneView({
                       fieldType: f.fieldType,
                       sourceZone: zone,
                       chipKey: f.name,
+                      chipIndex: f.index,
                     }),
                   );
                   e.dataTransfer.effectAllowed = 'move';
@@ -338,6 +343,7 @@ function ZoneView({
                   fieldType: f.fieldType,
                   x: e.clientX,
                   y: e.clientY,
+                  chipIndex: f.index,
                 });
               }}
             >
@@ -391,7 +397,7 @@ function ZoneView({
                 className="dropzone__remove"
                 data-testid={`remove-${zone}-${f.name}`}
                 aria-label={`移除 ${f.alias}`}
-                onClick={() => onRemove(zone, f.name)}
+                onClick={() => onRemove(zone, f.name, f.index)}
               >
                 ×
               </button>
@@ -462,6 +468,7 @@ export function DropZones({
   // RowField/ColumnField 的 type 是 RowColFieldType（'Hierarchy'/'Dimension'/'CalcGroup'/'NamedSet'/...），
   // 与 dropRules 的 FieldType 名称一致；直接当 FieldType 用。
   const rowFields: FieldTag[] = viewConfig.rows.map((r, i) => ({
+    index: i,
     name: r.fieldName,
     dragFieldName: r.fieldName,
     alias: isMeasureAxisField(r) ? 'Σ 度量名称' : aliasOf(r.fieldName),
@@ -471,6 +478,7 @@ export function DropZones({
     duplicateReason: dupRowIdx.has(i) ? DUP_REASON_ROW : undefined,
   }));
   const columnFields: FieldTag[] = viewConfig.columns.map((c, i) => ({
+    index: i,
     name: c.fieldName,
     dragFieldName: c.fieldName,
     alias: isMeasureAxisField(c) ? 'Σ 度量名称' : aliasOf(c.fieldName),
@@ -483,6 +491,7 @@ export function DropZones({
   // 拖到行后 viewConfig 真正记录此字段（implicit → explicit）
   if (!measureAxisExplicit && viewConfig.values.length > 0) {
     columnFields.push({
+      index: viewConfig.columns.length,
       name: MEASURE_AXIS_FIELD_NAME,
       dragFieldName: MEASURE_AXIS_FIELD_NAME,
       alias: 'Σ 度量名称',
@@ -499,6 +508,7 @@ export function DropZones({
       : null;
     const aggLabel = v.aggregator ? getAggregatorLabel(v.aggregator) : null;
     return {
+      index: i,
       name: getMeasureFieldName(v),
       dragFieldName: v.measureName,
       alias: formatMeasureDisplayLabel(aliasOf(v.measureName), qcLabel, aggLabel),
@@ -526,7 +536,8 @@ export function DropZones({
   );
   const filterFields: FieldTag[] = [
     ...dimensionFilterFields.map(
-      (fName): FieldTag => ({
+      (fName, i): FieldTag => ({
+        index: i,
         name: fName,
         dragFieldName: fName,
         alias: aliasOf(fName),
@@ -536,7 +547,8 @@ export function DropZones({
       }),
     ),
     ...measureFilterFields.map(
-      (mName): FieldTag => ({
+      (mName, i): FieldTag => ({
+        index: dimensionFilterFields.length + i,
         name: mName,
         dragFieldName: mName,
         alias: aliasOf(mName),

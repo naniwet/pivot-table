@@ -156,7 +156,7 @@ export function evaluateTopBottom(
  *
  * dataBar 不参与(整行高亮里没有 bar 的位置语义)— 调用方过滤。
  */
-function evaluateSingleRule(
+export function evaluateSingleRule(
   rule: ConditionalFormatRule,
   cellValue: number,
   cutoffs: CutoffsByRuleId,
