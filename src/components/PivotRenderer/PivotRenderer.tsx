@@ -19,6 +19,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEve
 
 import { clampColumnWidth } from '../../core/columnResize/clampColumnWidth.js';
 import { buildRowHeaderSpans } from '../../core/cellSetParser/rowHeaderSpans.js';
+import { formatTotalMemberLabel } from '../../core/cellSetParser/totalMemberLabel.js';
 import { computeColRanges } from '../../core/conditionalFormat/computeColRanges.js';
 import { computeTopBottomCutoffs } from '../../core/conditionalFormat/computeTopBottomCutoffs.js';
 import {
@@ -245,7 +246,7 @@ function renderTreeRows(opts: {
             >
               {item.collapsed ? '▶' : '▼'}
             </span>
-            <span className="pivot-row-label">{item.label}</span>
+            <span className="pivot-row-label">{formatTotalMemberLabel(item.label)}</span>
           </th>
           {Array.from({ length: dataColCount }).map((_, c) => {
             if (hiddenBodyCols.has(c)) return null;
@@ -280,7 +281,7 @@ function renderTreeRows(opts: {
           style={{ paddingLeft: 8 + indent + 14 /* 让 leaf 跟 parent 的 toggle 对齐 */ }}
           data-testid={`row-header-${rowNode.member.name}`}
         >
-          <span className="pivot-row-label">{item.label}</span>
+          <span className="pivot-row-label">{formatTotalMemberLabel(item.label)}</span>
         </th>
         {matrix[r]!.map((cell, c) => {
           if (hiddenBodyCols.has(c)) return null;
@@ -1125,7 +1126,7 @@ export function PivotRenderer({
                         ▶
                       </span>
                     )}
-                    <span className="pivot-row-label">{label}</span>
+                    <span className="pivot-row-label">{formatTotalMemberLabel(label)}</span>
                   </th>
                 );
               })}

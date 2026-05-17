@@ -19,6 +19,7 @@ import {
   type TreeColumnLevelCell,
 } from '../../core/cellSetParser/treeColumnItems.js';
 import { buildTreeRows } from '../../core/tree/buildTreeRows.js';
+import { formatTotalMemberLabel } from '../../core/cellSetParser/totalMemberLabel.js';
 import { formatErrorForDisplay } from '../../types/error.js';
 import type { BranchEntry, TreePathKey } from '../../types/tree.js';
 import type { Sort, ViewConfig } from '../../types/viewConfig.js';
@@ -359,7 +360,7 @@ export function TreeRenderer({
                       {isExpanded ? '▼' : '▶'}
                     </span>
                   )}
-                  <span className="pivot-row-label">{row.member.name}</span>
+                  <span className="pivot-row-label">{formatTotalMemberLabel(row.member.name)}</span>
                 </th>
                 {row.cells.map((cell, c) => {
                   // 列树折叠 → 隐藏 body cell
