@@ -22,9 +22,32 @@ export function translateSorts(
   return sorts.map((s): FieldSort => {
     if (s.type === 'ByMeasure') {
       const name = measureNameToFieldName?.get(s.measureName) ?? s.measureName;
+      // 2026-05-18:加 optional sortField 透传。backend 实测 sortField 控"排序上下文"
+      //   (probe-sort-variants.ts C2:sortField=ShipRegion2 → 按 Region 层排,顺序明显不同)。
+      //   不传 → backend 默认上下文。
+      const measure: { _enum: 'ByMeasure'; name: string; sortField?: string } = {
+        _enum: 'ByMeasure',
+        name,
+      };
+      if (s.sortField) measure.sortField = s.sortField;
       return {
         _enum: 'MeasureSortEx',
-        measure: { _enum: 'ByMeasure', name },
+        measure,
+        direction: s.direction,
+      };
+    }
+    if (s.type === 'ByDimensionAttr') {
+      // 2026-05-18:按另一个 dim 字段的字典序对此 dim 排序。
+      //   实测 backend MeasureSortEx + DimensionAttr 支持(probe-sort-variants.ts D1/D2)。
+      //   例:fieldName=ShipProvince2, byDimension=ShipRegion2
+      //       → Province 按 Region 字母序分组排,同 region 内 province 字典序。
+      return {
+        _enum: 'MeasureSortEx',
+        measure: {
+          _enum: 'DimensionAttr',
+          sortField: s.fieldName,
+          dimension: s.byDimension,
+        },
         direction: s.direction,
       };
     }

@@ -138,7 +138,18 @@ export type ClientMeasureFilter = MeasureFilter | MeasureFilterGroup;
  *   - BASC / BDESC：分组内升/降序（P2，分层 hierarchy 内部排序，跨组不打乱）
  */
 export type Sort =
-  | { type: 'ByMeasure'; measureName: string; direction: SortDirection }
+  | {
+      type: 'ByMeasure';
+      measureName: string;
+      direction: SortDirection;
+      /**
+       * 2026-05-18 backend probe 实测:可选 sortField,控"排序上下文"。
+       * 例:多 row dim [Region, Province] 时,按 Sales DESC 排,sortField='ShipRegion2'
+       * 会按 Region 层排序而不是 Province 层 — 结果差异显著(详见 probe-sort-variants.ts C1/C2)。
+       * 不传 → backend 默认上下文(通常 = 最深 row dim)。
+       */
+      sortField?: string;
+    }
   | { type: 'ByDimension'; fieldName: string; direction: SortDirection }
   /**
    * P5+ 自定义排序顺序 — 用户为某个维度指定成员的显示顺序(JD/小米/华为/苹果)。
@@ -146,7 +157,17 @@ export type Sort =
    * 后端用 DimensionSort + sortBy: ByCustomCaption。
    * 工具函数:setCustomSortOrder / removeCustomSortOrder(`core/viewConfig/cycleRowSort.ts`)
    */
-  | { type: 'ByCustomCaption'; fieldName: string; direction: SortDirection; customCaption: string[] };
+  | { type: 'ByCustomCaption'; fieldName: string; direction: SortDirection; customCaption: string[] }
+  /**
+   * 2026-05-18 加 — 按另一个 dim 字段的字典序对此 dim 排序(实测 backend
+   * MeasureSortEx + DimensionAttr 支持,详见 probe-sort-variants.ts D1/D2)。
+   *
+   *   fieldName:要排序的 dim(例如 ShipProvince2)
+   *   byDimension:用哪个 dim 的字典序排(例如 ShipRegion2 → Province 会按 Region 字母序分组排)
+   *
+   * 典型场景:多 row dim 时,想让 leaf 按上层分组顺序自然聚集,而不是各自字典序打散。
+   */
+  | { type: 'ByDimensionAttr'; fieldName: string; byDimension: string; direction: SortDirection };
 
 // ===== 分页状态 =====
 

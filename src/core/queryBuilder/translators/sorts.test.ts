@@ -88,3 +88,75 @@ describe('translateSorts', () => {
     });
   });
 });
+
+// 2026-05-18:ByMeasure.sortField + ByDimensionAttr 加(probe 实证 backend 真实装,
+//   见 scripts/probe-sort-variants.ts C1/C2/D1/D2)
+describe('translateSorts — ByMeasure.sortField(可选,控排序上下文)', () => {
+  it('不传 sortField → MeasureSortEx.measure 不含该字段(默认上下文)', () => {
+    const sorts = [
+      { type: 'ByMeasure' as const, measureName: 'sales', direction: 'DESC' as const },
+    ];
+    const result = translateSorts(sorts);
+    expect(result[0]).toMatchObject({
+      _enum: 'MeasureSortEx',
+      measure: { _enum: 'ByMeasure', name: 'sales' },
+      direction: 'DESC',
+    });
+    // 不传 sortField → measure 上确实没该字段(不发空串/null 避免后端误解)
+    expect((result[0] as { measure: Record<string, unknown> }).measure.sortField).toBeUndefined();
+  });
+
+  it('传 sortField → 透传给 backend(用于上下文化排序)', () => {
+    const sorts = [
+      {
+        type: 'ByMeasure' as const,
+        measureName: 'sales',
+        direction: 'DESC' as const,
+        sortField: 'ShipRegion2',
+      },
+    ];
+    const result = translateSorts(sorts);
+    expect(result[0]).toEqual({
+      _enum: 'MeasureSortEx',
+      measure: { _enum: 'ByMeasure', name: 'sales', sortField: 'ShipRegion2' },
+      direction: 'DESC',
+    });
+  });
+});
+
+describe('translateSorts — ByDimensionAttr(按另一 dim 字段字典序排)', () => {
+  it('emit MeasureSortEx + DimensionAttr', () => {
+    const sorts = [
+      {
+        type: 'ByDimensionAttr' as const,
+        fieldName: 'ShipProvince2',
+        byDimension: 'ShipRegion2',
+        direction: 'ASC' as const,
+      },
+    ];
+    const result = translateSorts(sorts);
+    expect(result).toEqual([
+      {
+        _enum: 'MeasureSortEx',
+        measure: {
+          _enum: 'DimensionAttr',
+          sortField: 'ShipProvince2',
+          dimension: 'ShipRegion2',
+        },
+        direction: 'ASC',
+      },
+    ]);
+  });
+
+  it('DESC 方向透传', () => {
+    const sorts = [
+      {
+        type: 'ByDimensionAttr' as const,
+        fieldName: 'A',
+        byDimension: 'B',
+        direction: 'DESC' as const,
+      },
+    ];
+    expect(translateSorts(sorts)[0]).toMatchObject({ direction: 'DESC' });
+  });
+});
