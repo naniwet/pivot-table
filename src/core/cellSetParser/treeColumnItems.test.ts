@@ -46,7 +46,7 @@ describe('buildTreeColumnLevels', () => {
     const r = buildTreeColumnLevels(levels, collapsed);
     // hidden = {1}(A 的第二个数据列);col 0 是 placeholder
     expect([...r.hiddenBodyCols].sort((a, b) => a - b)).toEqual([1]);
-    expect(r.placeholderBodyCols.get(0)).toBe(buildColumnCellKey(0, 0));
+    expect(r.placeholderBodyCols.get(0)?.key).toBe(buildColumnCellKey(0, 0));
     // A 自身 colSpan=1, B 还在 colSpan=2
     expect(r.filteredLevels[0]).toEqual([
       expect.objectContaining({ label: 'A', colSpan: 1, collapsed: true }),
@@ -67,7 +67,7 @@ describe('buildTreeColumnLevels', () => {
     const r = buildTreeColumnLevels(levels, new Set([buildColumnCellKey(0, 0)]));
     // X collapsed → cols 1,2,3 hidden(0 留给 X 当 placeholder)
     expect([...r.hiddenBodyCols].sort((a, b) => a - b)).toEqual([1, 2, 3]);
-    expect(r.placeholderBodyCols.get(0)).toBe(buildColumnCellKey(0, 0));
+    expect(r.placeholderBodyCols.get(0)?.key).toBe(buildColumnCellKey(0, 0));
     // A/B 完全在 X 的 rowSpan 覆盖下 → 不渲染
     expect(r.filteredLevels[1]!.length).toBe(0);
     expect(r.filteredLevels[2]!.length).toBe(0);
@@ -85,7 +85,8 @@ describe('buildTreeColumnLevels', () => {
     const r = buildTreeColumnLevels(levels, new Set([buildColumnCellKey(1, 0)]));
     // A collapsed → col 1 hidden;col 0 是 placeholder
     expect([...r.hiddenBodyCols]).toEqual([1]);
-    expect(r.placeholderBodyCols.get(0)).toBe(buildColumnCellKey(1, 0));
+    expect(r.placeholderBodyCols.get(0)?.key).toBe(buildColumnCellKey(1, 0));
+    expect(r.placeholderBodyCols.get(0)?.colSpan).toBe(2); // A 原 colSpan=2
     // X colSpan = 4 - 1 hidden = 3
     expect(r.filteredLevels[0]).toEqual([
       expect.objectContaining({ label: 'X', colSpan: 3 }),

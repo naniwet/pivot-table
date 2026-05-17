@@ -167,7 +167,7 @@ function renderTreeRows(opts: {
   emptyValueText: string | undefined;
   freezeRowHeader: boolean;
   hiddenBodyCols: ReadonlySet<number>;
-  placeholderBodyCols: ReadonlyMap<number, string>;
+  placeholderBodyCols: ReadonlyMap<number, { key: string; colSpan: number }>;
   onCellClick:
     | ((info: {
         rowIndex: number;
@@ -719,8 +719,8 @@ export function PivotRenderer({
             : null;
         const hiddenBodyCols: ReadonlySet<number> =
           treeColResult?.hiddenBodyCols ?? new Set<number>();
-        const placeholderBodyCols: ReadonlyMap<number, string> =
-          treeColResult?.placeholderBodyCols ?? new Map<number, string>();
+        const placeholderBodyCols: ReadonlyMap<number, { key: string; colSpan: number }> =
+          treeColResult?.placeholderBodyCols ?? new Map();
         const numColLevels =
           treeColResult?.filteredLevels.length ?? renderModel.columnHeaderLevels?.length ?? 1;
         return (

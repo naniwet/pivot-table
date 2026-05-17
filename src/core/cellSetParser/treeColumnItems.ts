@@ -36,7 +36,13 @@ export interface TreeColumnLevelCell extends ColumnHeaderGroupCell {
 export interface TreeColumnsResult {
   filteredLevels: TreeColumnLevelCell[][];
   hiddenBodyCols: ReadonlySet<number>;
-  placeholderBodyCols: ReadonlyMap<number, string>;
+  /**
+   * collapsed parent 在 body 的占位列。
+   * key = 该 placeholder 占用的 body 列号(startCol)
+   * value = { key: 同 header cell key,colSpan: 该 collapsed parent 原始 colSpan(给
+   *          renderer 算"哪些子列要 sum 聚合显示在 placeholder 上") }
+   */
+  placeholderBodyCols: ReadonlyMap<number, { key: string; colSpan: number }>;
 }
 
 export function buildColumnCellKey(level: number, startCol: number): string {
@@ -98,14 +104,14 @@ export function buildTreeColumnLevels(
   // collapsed parent 范围 [startCol .. startCol+colSpan-1]:
   //   placeholder = startCol(body 此列渲染空 td)
   //   hidden = startCol+1 .. startCol+colSpan-1(body 完全不渲染)
-  const placeholderBodyCols = new Map<number, string>();
+  const placeholderBodyCols = new Map<number, { key: string; colSpan: number }>();
   const hiddenBodyCols = new Set<number>();
   // 同时记录"被 ancestor rowSpan 覆盖"的 (level, startCol+1..) 区段,用于 header 跳过
   const coveredByAncestor: Array<{ level: number; rangeStart: number; rangeEnd: number }> = [];
   for (let lvl = 0; lvl < numLevels - 1; lvl++) {
     for (const c of decorated[lvl]!) {
       if (!c.collapsed) continue;
-      placeholderBodyCols.set(c.startCol, c.key);
+      placeholderBodyCols.set(c.startCol, { key: c.key, colSpan: c.colSpan });
       for (let j = c.startCol + 1; j < c.startCol + c.colSpan; j++) {
         hiddenBodyCols.add(j);
       }
