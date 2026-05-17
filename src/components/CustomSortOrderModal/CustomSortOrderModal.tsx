@@ -3,7 +3,7 @@
  *
  * 用法:dim chip 右键 "自定义排序…" → 打开此 modal
  *   - 列出该 dim 当前可见 member(由 caller 传 initialMembers,从 renderModel.rowHeader 提)
- *   - 用户上下箭头 / 拖拽 reorder
+ *   - 拖拽 reorder(2026-05-18 加 HTML5 drag-and-drop)+ ↑↓ 按钮(键盘 fallback)
  *   - "重置为字典序":通过 onApply(null) 通知 caller 走 REMOVE_CUSTOM_SORT_ORDER
  *   - "确定":onApply(newOrder) 走 SET_CUSTOM_SORT_ORDER
  *   - "取消":onClose,啥都不动
@@ -16,7 +16,12 @@
  *     reducer 端 customCaption 数组可以包含任意串,后端按全量数据按 caption 匹配排序。
  *   - 加 member 输入框?(用户手动加未出现的 caption)— P5+ 不做,等真需要再补
  */
-import { useState, type CSSProperties, type ReactNode } from 'react';
+import {
+  useState,
+  type CSSProperties,
+  type DragEvent as ReactDragEvent,
+  type ReactNode,
+} from 'react';
 
 export interface CustomSortOrderModalProps {
   /** 该字段的 fieldName(显示用) */
@@ -54,6 +59,24 @@ function mergeWithVisible(current: string[] | undefined, visible: string[]): str
   return result;
 }
 
+/**
+ * 把 arr[fromIdx] 移到 toIdx 位置 — 语义:drop on target → source 占 target 原槽位,
+ * target 被推到 source 来的方向。
+ *
+ * 用 splice 默认行为:删 fromIdx 后 insert at toIdx
+ *   - 往下拖(from<to):[A,B,C] from=0 to=2 → 删 [B,C] → 插 at 2 → [B,C,A] ✓
+ *   - 往上拖(from>to):[A,B,C] from=2 to=0 → 删 [A,B] → 插 at 0 → [C,A,B] ✓
+ *   - 相邻互换:[A,B,C] from=0 to=1 → 删 [B,C] → 插 at 1 → [B,A,C] ✓
+ */
+function moveItem<T>(arr: readonly T[], fromIdx: number, toIdx: number): T[] {
+  if (fromIdx === toIdx) return [...arr];
+  const next = arr.slice();
+  const [moved] = next.splice(fromIdx, 1);
+  if (moved === undefined) return next;
+  next.splice(toIdx, 0, moved);
+  return next;
+}
+
 export function CustomSortOrderModal({
   fieldName,
   fieldAlias,
@@ -67,6 +90,43 @@ export function CustomSortOrderModal({
   const [draft, setDraft] = useState<string[]>(() =>
     mergeWithVisible(currentOrder, initialMembers),
   );
+
+  // 拖拽 state — 仅 modal 本地
+  const [dragIdx, setDragIdx] = useState<number | null>(null);
+  const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
+
+  // ─── HTML5 drag-and-drop handlers ───
+  const onDragStart = (idx: number) => (e: ReactDragEvent<HTMLDivElement>) => {
+    setDragIdx(idx);
+    e.dataTransfer.effectAllowed = 'move';
+    // Firefox 必须 setData 才会触发 drag
+    e.dataTransfer.setData('text/plain', String(idx));
+  };
+  const onDragEnd = () => {
+    setDragIdx(null);
+    setDragOverIdx(null);
+  };
+  const onDragOver = (idx: number) => (e: ReactDragEvent<HTMLDivElement>) => {
+    if (dragIdx === null) return; // 防御:只处理本 modal 拖拽
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (dragOverIdx !== idx) setDragOverIdx(idx);
+  };
+  const onDragLeave = (idx: number) => () => {
+    // 离开当前 hover idx 才清(防止子元素 leave 误清)
+    if (dragOverIdx === idx) setDragOverIdx(null);
+  };
+  const onDrop = (targetIdx: number) => (e: ReactDragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    if (dragIdx === null || dragIdx === targetIdx) {
+      setDragIdx(null);
+      setDragOverIdx(null);
+      return;
+    }
+    setDraft((prev) => moveItem(prev, dragIdx, targetIdx));
+    setDragIdx(null);
+    setDragOverIdx(null);
+  };
 
   const moveUp = (idx: number) => {
     if (idx <= 0 || idx >= draft.length) return;
@@ -129,40 +189,81 @@ export function CustomSortOrderModal({
           )}
           {draft.length > 0 && (
             <div className="custom-sort-list" data-testid="custom-sort-list">
-              {draft.map((member, idx) => (
-                <div
-                  key={`${member}-${idx}`}
-                  className="custom-sort-item"
-                  data-testid={`custom-sort-item-${idx}`}
-                >
-                  <span className="custom-sort-item__index" aria-hidden>
-                    {idx + 1}
-                  </span>
-                  <span className="custom-sort-item__label">{member}</span>
-                  <button
-                    type="button"
-                    className="custom-sort-item__btn"
-                    data-testid={`custom-sort-up-${idx}`}
-                    aria-label={`上移 ${member}`}
-                    disabled={idx === 0}
-                    onClick={() => moveUp(idx)}
-                    title="上移"
+              {draft.map((member, idx) => {
+                const isDragging = dragIdx === idx;
+                const isDropTarget =
+                  dragOverIdx === idx && dragIdx !== null && dragIdx !== idx;
+                // 拖拽方向决定 indicator 位置:往上拖 → target 上沿;往下拖 → 下沿
+                const dropPos: 'before' | 'after' =
+                  dragIdx !== null && dragIdx > idx ? 'before' : 'after';
+                const itemStyle: CSSProperties = {
+                  opacity: isDragging ? 0.4 : 1,
+                  cursor: dragIdx !== null ? 'grabbing' : 'grab',
+                  position: 'relative',
+                };
+                const indicatorStyle: CSSProperties = {
+                  position: 'absolute',
+                  left: 0,
+                  right: 0,
+                  height: 2,
+                  background: '#2563eb',
+                  borderRadius: 1,
+                  pointerEvents: 'none',
+                  [dropPos === 'before' ? 'top' : 'bottom']: -1,
+                };
+                return (
+                  <div
+                    key={`${member}-${idx}`}
+                    className="custom-sort-item"
+                    data-testid={`custom-sort-item-${idx}`}
+                    data-dragging={isDragging ? 'true' : undefined}
+                    data-drop-target={isDropTarget ? 'true' : undefined}
+                    draggable
+                    onDragStart={onDragStart(idx)}
+                    onDragEnd={onDragEnd}
+                    onDragOver={onDragOver(idx)}
+                    onDragLeave={onDragLeave(idx)}
+                    onDrop={onDrop(idx)}
+                    style={itemStyle}
                   >
-                    ↑
-                  </button>
-                  <button
-                    type="button"
-                    className="custom-sort-item__btn"
-                    data-testid={`custom-sort-down-${idx}`}
-                    aria-label={`下移 ${member}`}
-                    disabled={idx === draft.length - 1}
-                    onClick={() => moveDown(idx)}
-                    title="下移"
-                  >
-                    ↓
-                  </button>
-                </div>
-              ))}
+                    <span
+                      className="custom-sort-item__handle"
+                      aria-hidden
+                      title="拖拽重排"
+                      style={{ cursor: 'inherit', userSelect: 'none', marginRight: 4 }}
+                    >
+                      ⠿
+                    </span>
+                    <span className="custom-sort-item__index" aria-hidden>
+                      {idx + 1}
+                    </span>
+                    <span className="custom-sort-item__label">{member}</span>
+                    <button
+                      type="button"
+                      className="custom-sort-item__btn"
+                      data-testid={`custom-sort-up-${idx}`}
+                      aria-label={`上移 ${member}`}
+                      disabled={idx === 0}
+                      onClick={() => moveUp(idx)}
+                      title="上移"
+                    >
+                      ↑
+                    </button>
+                    <button
+                      type="button"
+                      className="custom-sort-item__btn"
+                      data-testid={`custom-sort-down-${idx}`}
+                      aria-label={`下移 ${member}`}
+                      disabled={idx === draft.length - 1}
+                      onClick={() => moveDown(idx)}
+                      title="下移"
+                    >
+                      ↓
+                    </button>
+                    {isDropTarget && <div style={indicatorStyle} aria-hidden />}
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>

@@ -174,3 +174,116 @@ describe('CustomSortOrderModal — 操作', () => {
     expect(screen.getByTestId('custom-sort-apply')).toBeDisabled();
   });
 });
+
+// 2026-05-18 加 HTML5 drag-and-drop reorder
+// 语义:drop on target → source 占 target 槽位,target 被挤开
+describe('CustomSortOrderModal — drag-and-drop reorder', () => {
+  function mockDt() {
+    return {
+      effectAllowed: '',
+      dropEffect: '',
+      setData: vi.fn(),
+      getData: vi.fn(),
+    };
+  }
+  function dragAndDrop(srcEl: HTMLElement, destEl: HTMLElement) {
+    const dt = mockDt();
+    fireEvent.dragStart(srcEl, { dataTransfer: dt });
+    fireEvent.dragOver(destEl, { dataTransfer: dt });
+    fireEvent.drop(destEl, { dataTransfer: dt });
+    fireEvent.dragEnd(srcEl, { dataTransfer: dt });
+  }
+
+  it('往下拖:item 0 → item 2 → [B, C, A](A 占 C 槽位,C 挤上去)', () => {
+    const onApply = vi.fn();
+    render(
+      <CustomSortOrderModal
+        fieldName="region"
+        initialMembers={['A', 'B', 'C']}
+        onApply={onApply}
+        onClose={vi.fn()}
+      />,
+    );
+    dragAndDrop(
+      screen.getByTestId('custom-sort-item-0'),
+      screen.getByTestId('custom-sort-item-2'),
+    );
+    expect(screen.getByTestId('custom-sort-item-0')).toHaveTextContent('B');
+    expect(screen.getByTestId('custom-sort-item-1')).toHaveTextContent('C');
+    expect(screen.getByTestId('custom-sort-item-2')).toHaveTextContent('A');
+    fireEvent.click(screen.getByTestId('custom-sort-apply'));
+    expect(onApply).toHaveBeenCalledWith(['B', 'C', 'A']);
+  });
+
+  it('往上拖:item 2 → item 0 → [C, A, B](C 占 A 槽位)', () => {
+    render(
+      <CustomSortOrderModal
+        fieldName="region"
+        initialMembers={['A', 'B', 'C']}
+        onApply={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    dragAndDrop(
+      screen.getByTestId('custom-sort-item-2'),
+      screen.getByTestId('custom-sort-item-0'),
+    );
+    expect(screen.getByTestId('custom-sort-item-0')).toHaveTextContent('C');
+    expect(screen.getByTestId('custom-sort-item-1')).toHaveTextContent('A');
+    expect(screen.getByTestId('custom-sort-item-2')).toHaveTextContent('B');
+  });
+
+  it('drop 到自己上 → 顺序不变(no-op)', () => {
+    render(
+      <CustomSortOrderModal
+        fieldName="region"
+        initialMembers={['A', 'B', 'C']}
+        onApply={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    dragAndDrop(
+      screen.getByTestId('custom-sort-item-1'),
+      screen.getByTestId('custom-sort-item-1'),
+    );
+    expect(screen.getByTestId('custom-sort-item-0')).toHaveTextContent('A');
+    expect(screen.getByTestId('custom-sort-item-1')).toHaveTextContent('B');
+    expect(screen.getByTestId('custom-sort-item-2')).toHaveTextContent('C');
+  });
+
+  it('dragStart 标 data-dragging=true,dragEnd 清', () => {
+    render(
+      <CustomSortOrderModal
+        fieldName="region"
+        initialMembers={['A', 'B']}
+        onApply={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    const src = screen.getByTestId('custom-sort-item-0');
+    const dt = mockDt();
+    fireEvent.dragStart(src, { dataTransfer: dt });
+    expect(src.getAttribute('data-dragging')).toBe('true');
+    fireEvent.dragEnd(src, { dataTransfer: dt });
+    expect(src.getAttribute('data-dragging')).toBeNull();
+  });
+
+  it('dragOver target 标 data-drop-target=true;dragLeave 清', () => {
+    render(
+      <CustomSortOrderModal
+        fieldName="region"
+        initialMembers={['A', 'B', 'C']}
+        onApply={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    const src = screen.getByTestId('custom-sort-item-0');
+    const dest = screen.getByTestId('custom-sort-item-2');
+    const dt = mockDt();
+    fireEvent.dragStart(src, { dataTransfer: dt });
+    fireEvent.dragOver(dest, { dataTransfer: dt });
+    expect(dest.getAttribute('data-drop-target')).toBe('true');
+    fireEvent.dragLeave(dest);
+    expect(dest.getAttribute('data-drop-target')).toBeNull();
+  });
+});
