@@ -929,18 +929,20 @@ export function PivotRenderer({
                       {sortable && sort?.direction === 'ASC' && (
                         <span aria-hidden="true"> ↑</span>
                       )}
-                      {/* P2 分组内排序：箭头加角标提示 */}
+                      {/* BASC/BDESC 是"全局排序"(打破 hierarchy,B = Break grouping)
+                          — 2026-05-16 真实接口验证 + 之前菜单 label 已修正,这里角标
+                          原写"组"也是反的,正确是"全"(全局 = 打散分组) */}
                       {sortable && sort?.direction === 'BDESC' && (
                         <span
                           aria-hidden="true"
-                          title="分组内降序"
-                        > ↓<sub style={{ fontSize: 9 }}>组</sub></span>
+                          title="全局降序"
+                        > ↓<sub style={{ fontSize: 9 }}>全</sub></span>
                       )}
                       {sortable && sort?.direction === 'BASC' && (
                         <span
                           aria-hidden="true"
-                          title="分组内升序"
-                        > ↑<sub style={{ fontSize: 9 }}>组</sub></span>
+                          title="全局升序"
+                        > ↑<sub style={{ fontSize: 9 }}>全</sub></span>
                       )}
                       {showSortRank && (
                         <sup className="pivot-sort-rank" aria-hidden="true">
@@ -1000,7 +1002,14 @@ export function PivotRenderer({
                 ? [...labels, ...Array(rowHeaderLevels - labels.length).fill('')]
                 : labels;
             });
-            const rowSpansMap = buildRowHeaderSpans(paddedPaths);
+            // P5+ 全局排序(BASC/BDESC)时 backend 打散 hierarchy 顺序,合并 cell
+            // 会跨"碰巧相邻的同 prefix"行,视觉上暗示分组但其实没有 — 关掉合并
+            const hasBreakingSort = viewConfig.rowSorts.some(
+              (s) =>
+                'direction' in s &&
+                (s.direction === 'BASC' || s.direction === 'BDESC'),
+            );
+            const rowSpansMap = buildRowHeaderSpans(paddedPaths, !hasBreakingSort);
             return renderModel.rowHeader.map((rowNode, r) => {
               const padded = paddedPaths[r]!;
               const spans = rowSpansMap[r] ?? [];
@@ -1053,6 +1062,12 @@ export function PivotRenderer({
                   if (rowScopeForTh.bg) thInlineStyle.backgroundColor = rowScopeForTh.bg;
                   if (rowScopeForTh.fg) thInlineStyle.color = rowScopeForTh.fg;
                   if (rowScopeForTh.bold) thInlineStyle.fontWeight = 600;
+                }
+                // 2026-05-17 非 leaf level cell 居中 — 不管 child 是 1 个还是 N 个,
+                //   "分组 cell" 视觉一致(老版按 rowspan>1 判,1 child region 漏 → 跟多 child 不一致)
+                if (!isLastLabel) {
+                  thInlineStyle.textAlign = 'center';
+                  thInlineStyle.verticalAlign = 'middle';
                 }
                 return (
                   <th
