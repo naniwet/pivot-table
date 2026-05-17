@@ -164,58 +164,41 @@ function renderCardinalityMarker(
   anchor: NodePosition,
   toward: NodePosition,
 ): ReactNode {
-  // 2026-05-17 重做端点标记 — 旧版 ONE 单线太细易混,MANY 用 3 个独立 <line> 没 stroke-linejoin
-  // 看起来碎。改为:
-  //   ONE  → 加长加粗的单 perpendicular 杠(类似 ER 图的"exactly one")
-  //   MANY → 单个 <path> 画 3-prong 鸡爪 + stroke-linejoin round(干净尖角)
-  //   两者都离 box 边 12-18px,给视觉缓冲不与 box 边线打架
-  const dx = toward.x - anchor.x;
-  const dy = toward.y - anchor.y;
-  const length = Math.hypot(dx, dy) || 1;
-  // perpendicular 单位向量 — 用于把 marker 沿 edge 法向铺开;
-  // 实际离 anchor 的距离由 offsetToward 用 edge 方向算
-  const px = -dy / length;
-  const py = dx / length;
-
-  if (cardinality === 'ONE') {
-    // ONE:单 perpendicular 短杠,12px 离 box,半长 7px,加粗(CSS stroke-width)
-    const bar = offsetToward(anchor, toward, 13);
-    const half = 7;
-    const a = { x: bar.x + px * half, y: bar.y + py * half };
-    const b = { x: bar.x - px * half, y: bar.y - py * half };
-    return (
-      <line
-        className="relation-graph__cardinality-marker relation-graph__cardinality-marker--one"
-        data-testid={`relation-cardinality-${edgeId}-${side}`}
-        data-cardinality="one"
-        x1={a.x}
-        y1={a.y}
-        x2={b.x}
-        y2={b.y}
-      />
-    );
-  }
-
-  // MANY:3-prong 鸡爪,base 在内、3 个尖朝外。单 <path> 画(stroke-linejoin round 让尖角圆滑)
-  // 形状:base 是中心点,3 条线分别去 left-tip / right-tip / forward-tip(toward 反方向)
-  const base = offsetToward(anchor, toward, 9);
-  const forward = offsetToward(anchor, toward, 18);
-  const wing = 7;
-  const wingL = { x: forward.x + px * wing, y: forward.y + py * wing };
-  const wingR = { x: forward.x - px * wing, y: forward.y - py * wing };
-  // 3 条线从 base 散开:wingL ← base → wingR + base → forward
-  // 用 polyline 形式:wingL → base → forward → base → wingR(穿 base 两次,linejoin 圆)
-  const d =
-    `M ${wingL.x} ${wingL.y} L ${base.x} ${base.y} ` +
-    `L ${forward.x} ${forward.y} L ${base.x} ${base.y} ` +
-    `L ${wingR.x} ${wingR.y}`;
+  // 2026-05-17 改用文字 "1" / "N" 替代 ER 几何 marker(crow's foot 鸡爪)。
+  // 业务用户场景下"1/N"比鸡爪更直观。圆形 badge 背景 + 居中数字。
+  // 样式 inline 到 SVG attributes(不依赖外部 CSS,组件可独立工作)。
+  const center = offsetToward(anchor, toward, 16);
+  const label = cardinality === 'ONE' ? '1' : 'N';
+  const lower = cardinality === 'ONE' ? 'one' : 'many';
   return (
-    <path
-      className="relation-graph__cardinality-marker relation-graph__cardinality-marker--many"
+    <g
+      className={`relation-graph__cardinality-marker relation-graph__cardinality-marker--${lower}`}
       data-testid={`relation-cardinality-${edgeId}-${side}`}
-      data-cardinality="many"
-      d={d}
-    />
+      data-cardinality={lower}
+    >
+      <circle
+        className="relation-graph__cardinality-bg"
+        cx={center.x}
+        cy={center.y}
+        r={9}
+        fill="#fff"
+        stroke="#94a3b8"
+        strokeWidth={1.2}
+      />
+      <text
+        className="relation-graph__cardinality-label"
+        x={center.x}
+        y={center.y}
+        textAnchor="middle"
+        dominantBaseline="central"
+        fill="#475569"
+        fontSize={11}
+        fontWeight={700}
+        style={{ userSelect: 'none' }}
+      >
+        {label}
+      </text>
+    </g>
   );
 }
 
