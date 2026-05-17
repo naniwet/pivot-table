@@ -264,11 +264,6 @@ export function SmartbiConfigManager({
           {active && (
             <div className="config-popover__footer" title={active.baseUrl}>
               连到 → {active.baseUrl}
-              {active.modelName && (
-                <div className="config-popover__model" title={active.modelId}>
-                  📊 {active.modelName}
-                </div>
-              )}
             </div>
           )}
         </div>
@@ -323,26 +318,8 @@ export function SmartbiConfigManager({
                 data-testid="form-token"
               />
             </FormField>
-            <FormField
-              label="数据模型 ID"
-              hint="可留空 — 保存后在主界面顶部的 📊 按钮里浏览资源目录选模型"
-            >
-              <input
-                type="text"
-                className="config-modal__input"
-                value={draft.modelId}
-                onChange={(e) =>
-                  setDraft((d) => ({ ...d, modelId: e.target.value, modelName: '' }))
-                }
-                placeholder="(可选)I8a8aa3ed018ff..."
-                data-testid="form-modelid"
-              />
-              {draft.modelName && (
-                <div className="config-modal__model-name" data-testid="form-modelname">
-                  当前已选:{draft.modelName}
-                </div>
-              )}
-            </FormField>
+            {/* 2026-05-16:数据模型 ID 字段不在这里编辑 — 走主界面数据面板的模型 picker
+                (该 picker 用 active config 的 proxy URL 无跨域,直接树形浏览选叶子) */}
             <div className="config-modal__footer">
               <button
                 type="button"

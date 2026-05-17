@@ -133,12 +133,14 @@ export interface DropZonesProps {
   style?: CSSProperties;
 }
 
-/** P2: chip 上展示当前排序状态的 4 种箭头 */
+/** P2: chip 上展示当前排序状态的 4 种箭头
+ *  ASC/DESC = 分组内(默认,保留 hierarchy)— 裸箭头
+ *  BASC/BDESC = 全局(打散 hierarchy,B=Break grouping)— 加"全"角标 */
 const SORT_ARROW: Record<string, string> = {
   ASC: '↑',
   DESC: '↓',
-  BASC: '↑组',
-  BDESC: '↓组',
+  BASC: '↑全',
+  BDESC: '↓全',
 };
 
 const ZONE_LABELS: Record<DropZone, string> = {

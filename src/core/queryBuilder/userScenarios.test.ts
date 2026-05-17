@@ -54,15 +54,15 @@ describe('用户业务场景:翻译正确性回归', () => {
     const q = buildQuery(vc, orderModelMetadata, vc.pageState);
     // columns 含 base 名 + encoded AVG 名(同 measure 两个独立列)
     expect(q.columns).toEqual([SALES, `${SALES}@AGG@AVG`]);
-    // 只有 AVG override 那个发 MeasureField
-    expect(q.fields).toEqual([
-      {
-        _enum: 'MeasureField',
-        name: `${SALES}@AGG@AVG`,
-        measure: SALES,
-        aggregator: 'AVG',
-      },
-    ]);
+    // 2026-05-16:aggregator override 改走 CustomMeasure(后端不识别 MeasureField.aggregator)
+    // → fields 不再含 aggregator-only MeasureField
+    expect(q.fields).toEqual([]);
+    // customElements 多出来一个 CustomMeasure(AVG chip)
+    const cms = q.customElements.filter(
+      (e: { _enum: string }) => e._enum === 'CustomMeasure',
+    );
+    expect(cms).toHaveLength(1);
+    expect((cms[0] as { measure: { aggregator: string } }).measure.aggregator).toBe('AVG');
     expect(q.pageSettings.showGrandTotal).toBe(true);
   });
 

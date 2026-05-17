@@ -23,7 +23,10 @@ describe('translateCustomElements', () => {
     expect(translateCustomElements([], orderModelMetadata)).toEqual([]);
   });
 
-  it('I1: calc_measure → 1 个 CustomCalcMeasure(measure.name=cf.id, expr=MDX)', () => {
+  // 2026-05-16:editor 用 alias("销售额"是 fixture salesMeasure 的 alias,真 name 是
+  // "销售额_1624531356707")— astToMdx 把 alias 翻成后端 measure name;未知 alias
+  // (如"成本",fixture 没有)→ fallback 原样,等后端解释 / 报错
+  it('I1: calc_measure → CustomCalcMeasure;表达式里 alias 翻成 measure name', () => {
     const cf: CustomField = {
       id: 'cm1',
       name: '利润率',
@@ -49,7 +52,8 @@ describe('translateCustomElements', () => {
         dataType: 'DOUBLE',
         dataFormat: '百分比',
         maskRule: '',
-        expr: '[Measures].[销售额] / [Measures].[成本]', // ← astToMdx 输出
+        // 销售额 是 alias → 翻成 measure name '销售额_1624531356707';成本 未知 → 原样兜底
+        expr: '[Measures].[销售额_1624531356707] / [Measures].[成本]',
       },
     });
   });
@@ -455,16 +459,73 @@ describe('translateCustomElements', () => {
       expect(out).toEqual([]);
     });
 
-    it('含聚合函数(SUM/AVG)→ 抛错(行级表达式不该用聚合,要聚合用 calc_measure)', () => {
+    it('字符串函数 calc_column → expr 保留函数并把引用翻成物理列名,valueType=STRING', () => {
+      const meta = buildMetaWithTwoColumns();
+      meta.fields[0] = {
+        ...meta.fields[0]!,
+        id: 'F-product-name',
+        name: 'product_name',
+        aliasFromDb: '产品名称',
+        sqlColumnName: 'product_name',
+        referenceFieldId: 'F-product-name',
+        alias: '产品名称',
+        desc: '产品名称',
+      };
+      const cf: CustomField = {
+        id: 'cf_prefix',
+        name: '产品名前缀',
+        kind: 'calc_column',
+        dataFormat: '通用',
+        expression: 'SUBSTRING([产品名称], 1, 3)',
+        ast: {
+          type: 'strfn',
+          fn: 'SUBSTRING',
+          args: [
+            { type: 'field', name: '产品名称' },
+            { type: 'num', value: 1 },
+            { type: 'num', value: 3 },
+          ],
+        },
+      };
+      const out = translateCustomElements([cf], meta);
+      expect(out[0]).toMatchObject({
+        _enum: 'CustomColumn',
+        column: {
+          valueType: 'STRING',
+          columnType: 'STRING',
+          define: { _enum: 'CalcColumn', expr: 'SUBSTRING([product_name], 1, 3)' },
+        },
+      });
+      expect(out[1]).toMatchObject({
+        _enum: 'CustomDimension',
+        dimension: {
+          levels: [{ valueType: 'STRING' }],
+        },
+      });
+    });
+
+    it('LENGTH 字符串函数 calc_column → valueType=DOUBLE', () => {
       const meta = buildMetaWithTwoColumns();
       const cf: CustomField = {
-        id: 'cf_agg', name: 'agg',
+        id: 'cf_len',
+        name: '名称长度',
         kind: 'calc_column',
         dataFormat: '',
-        expression: 'SUM([销售额])',
-        ast: { type: 'agg', fn: 'SUM', arg: { type: 'field', name: '销售额' } },
+        expression: 'LENGTH([销售额])',
+        ast: {
+          type: 'strfn',
+          fn: 'LENGTH',
+          args: [{ type: 'field', name: '销售额' }],
+        },
       };
-      expect(() => translateCustomElements([cf], meta)).toThrow(/不支持聚合函数/);
+      const out = translateCustomElements([cf], meta);
+      expect(out[0]).toMatchObject({
+        column: {
+          valueType: 'DOUBLE',
+          columnType: 'DOUBLE',
+          define: { _enum: 'CalcColumn', expr: 'LENGTH([销售额])' },
+        },
+      });
     });
   });
 

@@ -3,7 +3,7 @@
  *
  * 支持两种 kind:
  *   - calc_measure(MDX 度量级)— 表达式引用 measure name(`[销售额_m]/[销售成本_m]`)
- *     语义 = SUM(a)/SUM(b);后端 1 个 CustomCalcMeasure。
+ *     语义 = 度量级表达式;后端 1 个 CustomCalcMeasure。
  *   - calc_column(SQL 行级计算列)— 表达式引用物理列名(`[销售额]/[数量]`)
  *     语义 = 行级 a/b 列;后端 CustomColumn(CalcColumn) + CustomDimension(作维度用)。
  *     想做"对均价再求和/平均",右键 chip → 转度量(独立机制)。
@@ -45,6 +45,12 @@ export interface FieldExpressionEditorProps {
   /** calc_column 模式下的合法 [字段] 引用(即物理列名);不传则跳过校验 */
   availableColumns?: string[];
   initialField?: ExpressionField;
+  /**
+   * 新建场景下的初始 kind('calc_measure' / 'calc_column')。
+   * 编辑已有字段时此 prop 被忽略(以 initialField.kind 为准)。
+   * 不传默认 'calc_measure'(向后兼容旧调用方)。
+   */
+  defaultKind?: ExpressionField['kind'];
   onApply: (field: ExpressionField) => void;
   onClose: () => void;
   className?: string;
@@ -74,14 +80,29 @@ function collectFieldRefs(node: Expr, out: Set<string>): void {
       collectFieldRefs(node.left, out);
       collectFieldRefs(node.right, out);
       return;
-    case 'agg':
-      collectFieldRefs(node.arg, out);
+    case 'strfn':
+      for (const arg of node.args) collectFieldRefs(arg, out);
       return;
     case 'unary':
       collectFieldRefs(node.expr, out);
       return;
     case 'num':
       return;
+  }
+}
+
+/** AST 是否含字符串函数节点 */
+function containsStringFunc(node: Expr): boolean {
+  switch (node.type) {
+    case 'strfn':
+      return true;
+    case 'binop':
+      return containsStringFunc(node.left) || containsStringFunc(node.right);
+    case 'unary':
+      return containsStringFunc(node.expr);
+    case 'field':
+    case 'num':
+      return false;
   }
 }
 
@@ -105,17 +126,14 @@ function validate(source: string, available?: string[]): ParseState {
       unknownRefs: [],
     };
   }
+  // 2026-05-16:"未知字段"降级 warning — 前端 alias/name 收集可能不全(尤其
+  // dataset 重新建后用户没刷 metadata),后端能 resolve 就该让用户提交。
+  // AST 解析失败仍 block;但 ref 未在前端列表只显示提示,不阻塞 canApply。
   if (available && available.length > 0) {
     const refs = new Set<string>();
     collectFieldRefs(ast, refs);
     const unknown = Array.from(refs).filter((r) => !available.includes(r));
-    if (unknown.length > 0) {
-      return {
-        ast,
-        error: `字段 [${unknown.join('], [')}] 不在 metadata 中`,
-        unknownRefs: unknown,
-      };
-    }
+    return { ast, error: null, unknownRefs: unknown };
   }
   return { ast, error: null, unknownRefs: [] };
 }
@@ -125,14 +143,16 @@ export function FieldExpressionEditor({
   availableMeasures,
   availableColumns,
   initialField,
+  defaultKind,
   onApply,
   onClose,
   className,
   style,
 }: FieldExpressionEditorProps): ReactNode {
-  // initialField 推断 kind:有就用它的,否则默认 calc_measure(向后兼容旧入口)
+  // initialField 推断 kind(编辑已有):优先用它的;否则用 defaultKind(新建入口预设);
+  // 都没有 → 默认 calc_measure(向后兼容旧调用方)
   const [kind, setKind] = useState<ExpressionField['kind']>(
-    initialField?.kind ?? 'calc_measure',
+    initialField?.kind ?? defaultKind ?? 'calc_measure',
   );
   const [name, setName] = useState(initialField?.name ?? '');
   const [dataFormat, setDataFormat] = useState(initialField?.dataFormat ?? '通用');
@@ -152,18 +172,19 @@ export function FieldExpressionEditor({
   );
   const isValid = parsed.ast !== null && parsed.error === null;
   const isEmpty = expression.trim() === '';
+  const stringFuncRejected =
+    kind === 'calc_measure' && parsed.ast ? containsStringFunc(parsed.ast) : false;
   // MDX 预览仅 calc_measure 有意义(calc_column 是 SQL 行级,不走 MDX 引擎)
   const mdxPreview = useMemo(
-    () => (parsed.ast && kind === 'calc_measure' ? astToMdx(parsed.ast) : ''),
-    [parsed.ast, kind],
+    () =>
+      parsed.ast && kind === 'calc_measure' && !stringFuncRejected
+        ? astToMdx(parsed.ast)
+        : '',
+    [parsed.ast, kind, stringFuncRejected],
   );
 
-  // calc_column 不允许聚合函数(行级表达式无聚合上下文)
-  const hasAgg = parsed.ast ? containsAgg(parsed.ast) : false;
-  const aggRejected = kind === 'calc_column' && hasAgg;
-
   const apply = () => {
-    if (!name.trim() || !isValid || isEmpty || aggRejected) return;
+    if (!name.trim() || !isValid || isEmpty || stringFuncRejected) return;
     if (kind === 'calc_measure') {
       const cf: CustomCalcMeasureField = {
         id: initialField?.id ?? genId('cm'),
@@ -188,7 +209,7 @@ export function FieldExpressionEditor({
     onClose();
   };
 
-  const canApply = name.trim() !== '' && isValid && !isEmpty && !aggRejected;
+  const canApply = name.trim() !== '' && isValid && !isEmpty && !stringFuncRejected;
   const isEditingExisting = !!initialField;
 
   return (
@@ -211,36 +232,41 @@ export function FieldExpressionEditor({
                 : '新建计算列'}
           </span>
         </div>
-        {/* kind 切换 — 编辑已有字段时锁住(避免误改 schema 类别) */}
-        <div className="expr-editor__row" data-testid="expr-editor-kind-row">
-          <label>类别</label>
-          <div className="expr-editor__kind-group" role="radiogroup">
-            <label className="expr-editor__kind-option">
-              <input
-                type="radio"
-                data-testid="expr-editor-kind-measure"
-                name="expr-editor-kind"
-                value="calc_measure"
-                checked={kind === 'calc_measure'}
-                disabled={isEditingExisting}
-                onChange={() => setKind('calc_measure')}
-              />
-              计算度量(MDX 聚合后)
-            </label>
-            <label className="expr-editor__kind-option">
-              <input
-                type="radio"
-                data-testid="expr-editor-kind-column"
-                name="expr-editor-kind"
-                value="calc_column"
-                checked={kind === 'calc_column'}
-                disabled={isEditingExisting}
-                onChange={() => setKind('calc_column')}
-              />
-              计算列(SQL 行级)
-            </label>
+        {/*
+         * kind 切换 — 仅当 caller 既没传 initialField 也没传 defaultKind 时显示(legacy 兜底)。
+         * 现在 PivotTable 走"+ 新建 → 计算度量/计算列"两个独立入口都会传 defaultKind,
+         * radio 不再渲染 — 标题已经标明类型,避免冗余。
+         * 编辑已有字段时:initialField.kind 决定 kind,radio 也不需要(类别不可改)。
+         */}
+        {!isEditingExisting && !defaultKind && (
+          <div className="expr-editor__row" data-testid="expr-editor-kind-row">
+            <label>类别</label>
+            <div className="expr-editor__kind-group" role="radiogroup">
+              <label className="expr-editor__kind-option">
+                <input
+                  type="radio"
+                  data-testid="expr-editor-kind-measure"
+                  name="expr-editor-kind"
+                  value="calc_measure"
+                  checked={kind === 'calc_measure'}
+                  onChange={() => setKind('calc_measure')}
+                />
+                计算度量(MDX 聚合后)
+              </label>
+              <label className="expr-editor__kind-option">
+                <input
+                  type="radio"
+                  data-testid="expr-editor-kind-column"
+                  name="expr-editor-kind"
+                  value="calc_column"
+                  checked={kind === 'calc_column'}
+                  onChange={() => setKind('calc_column')}
+                />
+                计算列(SQL 行级)
+              </label>
+            </div>
           </div>
-        </div>
+        )}
         <div className="expr-editor__row">
           <label>字段名称</label>
           <input
@@ -281,26 +307,36 @@ export function FieldExpressionEditor({
         </div>
         <div className="expr-editor__hint">
           {kind === 'calc_measure'
-            ? '支持:[度量] / 数字 / + - * / / 括号 / SUM AVG COUNT MAX MIN'
-            : '支持:[物理列] / 数字 / + - * / / 括号(行级,不能用聚合函数)'}
+            ? '支持:[度量] / 数字 / + - * / / 括号'
+            : '支持:[物理列] / 数字 / + - * / / 括号 / SUBSTRING LEFT RIGHT LENGTH TRIM'}
         </div>
         <div
           className="expr-editor__status"
           data-testid="expr-editor-status"
-          data-valid={isValid && !isEmpty && !aggRejected ? 'true' : 'false'}
+          data-valid={isValid && !isEmpty && !stringFuncRejected ? 'true' : 'false'}
         >
           {isEmpty ? (
             <span className="expr-editor__status--idle">请输入表达式</span>
-          ) : aggRejected ? (
+          ) : stringFuncRejected ? (
             <span
               className="expr-editor__status--err"
               data-testid="expr-editor-error"
             >
-              ✗ 计算列不能用聚合函数(SUM/AVG/...);要聚合请用计算度量
+              ✗ 字符串函数仅支持计算列,不支持计算度量
             </span>
           ) : isValid ? (
             <>
               <span className="expr-editor__status--ok">✓ 表达式有效</span>
+              {parsed.unknownRefs.length > 0 && (
+                <span
+                  className="expr-editor__status--warn"
+                  data-testid="expr-editor-warn"
+                  style={{ marginLeft: 8 }}
+                  title="前端没在 metadata 找到这些字段;如果你确定后端能识别(如刚加的新字段),可以继续保存"
+                >
+                  ⚠ 未在 metadata 中找到:[{parsed.unknownRefs.join('], [')}]
+                </span>
+              )}
               {mdxPreview && (
                 <details className="expr-editor__mdx-preview">
                   <summary>MDX 预览(联调用)</summary>
@@ -339,19 +375,4 @@ export function FieldExpressionEditor({
       </div>
     </div>
   );
-}
-
-/** AST 是否含 agg() 节点 */
-function containsAgg(node: Expr): boolean {
-  switch (node.type) {
-    case 'agg':
-      return true;
-    case 'binop':
-      return containsAgg(node.left) || containsAgg(node.right);
-    case 'unary':
-      return containsAgg(node.expr);
-    case 'field':
-    case 'num':
-      return false;
-  }
 }

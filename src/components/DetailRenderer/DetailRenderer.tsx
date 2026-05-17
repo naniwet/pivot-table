@@ -63,6 +63,7 @@ export interface DetailRendererProps {
 
 const EMPTY_PROMPT = '把字段拖到行区,即席查询会把这些字段直接落 SQL 查询';
 const NO_DATA_TEXT = '无数据';
+const EMPTY_ROW_HEADERS: RenderModel['rowHeader'] = [];
 
 function findActiveSort(rowSorts: Sort[], fieldName: string): Sort | undefined {
   return rowSorts.find((s) => s.type === 'ByDimension' && s.fieldName === fieldName);
@@ -108,6 +109,59 @@ export function DetailRenderer({
 
   const wrapperClass = className ? `pivot-renderer ${className}` : 'pivot-renderer';
 
+  const rowHeaders = renderModel?.rowHeader ?? EMPTY_ROW_HEADERS;
+  const emptyText = viewConfig.pageState.emptyValueText;
+
+  // adhoc 行结构:每行 fullPath.length 个 row header cell + 数据 cells(一般无 — adhoc cellSet
+  // 把所有字段都扁平在 rowHeader 里,matrix 通常是空 / 只含 columnMetadata 信息)
+  // 这里把 rowHeader.fullPath 做"所有列",matrix 不渲染(保留给将来扩展)
+  const rowHeaderLevels = Math.max(1, rowHeaders[0]?.fullPath.length ?? 1);
+
+  // P5+ 条件格式化:adhoc mode 的规则在 DetailRenderer 内消费
+  // 仅当传入 numericFieldNames(白名单)+ 有 adhoc 规则时才跑 evaluator,否则零开销
+  const condFormats = filterConditionalFormatsByMode(
+    viewConfig.pageState.conditionalFormats ?? [],
+    'adhoc',
+  );
+  const numericCols = numericFieldNames ?? new Set<string>();
+  const columnFieldNames = useMemo(
+    () =>
+      Array.from(
+        { length: rowHeaderLevels },
+        (_, i) => viewConfig.rows[i]?.fieldName ?? '',
+      ),
+    [viewConfig.rows, rowHeaderLevels],
+  );
+  const adhocStats = useMemo(() => {
+    if (condFormats.length === 0 || numericCols.size === 0) return null;
+    return computeAdhocStats({
+      rows: rowHeaders,
+      columnFieldNames,
+      numericFieldNames: numericCols,
+      rules: condFormats,
+    });
+  }, [rowHeaders, columnFieldNames, numericCols, condFormats]);
+
+  // P5+ row-scope styles:命中 → 整行所有 cell 套样式(包括非数值列 / 字符串列)
+  const rowScopeStyles = useMemo(() => {
+    if (condFormats.length === 0 || numericCols.size === 0 || !adhocStats) return null;
+    const cellValueAt = (r: number, measure: string): number | null => {
+      if (!numericCols.has(measure)) return null;
+      const c = columnFieldNames.indexOf(measure);
+      if (c < 0) return null;
+      const raw = rowHeaders[r]?.fullPath[c];
+      if (raw === '' || raw == null) return null;
+      const n = typeof raw === 'number' ? raw : Number(raw);
+      return Number.isFinite(n) ? n : null;
+    };
+    return computeRowScopeStyles(
+      condFormats,
+      rowHeaders.length,
+      cellValueAt,
+      adhocStats.cutoffsByRuleId,
+    );
+  }, [rowHeaders, columnFieldNames, numericCols, condFormats, adhocStats]);
+
   if (error) {
     const displayed = formatErrorForDisplay(error);
     return (
@@ -141,7 +195,7 @@ export function DetailRenderer({
 
   const isEmptyResult =
     renderModel === null ||
-    (renderModel.rowHeader.length === 0 && renderModel.matrix.length === 0);
+    (rowHeaders.length === 0 && renderModel.matrix.length === 0);
   if (isEmptyResult) {
     return (
       <div
@@ -159,58 +213,6 @@ export function DetailRenderer({
       </div>
     );
   }
-
-  const emptyText = viewConfig.pageState.emptyValueText;
-
-  // adhoc 行结构:每行 fullPath.length 个 row header cell + 数据 cells(一般无 — adhoc cellSet
-  // 把所有字段都扁平在 rowHeader 里,matrix 通常是空 / 只含 columnMetadata 信息)
-  // 这里把 rowHeader.fullPath 做"所有列",matrix 不渲染(保留给将来扩展)
-  const rowHeaderLevels = Math.max(1, renderModel.rowHeader[0]?.fullPath.length ?? 1);
-
-  // P5+ 条件格式化:adhoc mode 的规则在 DetailRenderer 内消费
-  // 仅当传入 numericFieldNames(白名单)+ 有 adhoc 规则时才跑 evaluator,否则零开销
-  const condFormats = filterConditionalFormatsByMode(
-    viewConfig.pageState.conditionalFormats ?? [],
-    'adhoc',
-  );
-  const numericCols = numericFieldNames ?? new Set<string>();
-  const columnFieldNames = useMemo(
-    () =>
-      Array.from(
-        { length: rowHeaderLevels },
-        (_, i) => viewConfig.rows[i]?.fieldName ?? '',
-      ),
-    [viewConfig.rows, rowHeaderLevels],
-  );
-  const adhocStats = useMemo(() => {
-    if (condFormats.length === 0 || numericCols.size === 0) return null;
-    return computeAdhocStats({
-      rows: renderModel.rowHeader,
-      columnFieldNames,
-      numericFieldNames: numericCols,
-      rules: condFormats,
-    });
-  }, [renderModel.rowHeader, columnFieldNames, numericCols, condFormats]);
-
-  // P5+ row-scope styles:命中 → 整行所有 cell 套样式(包括非数值列 / 字符串列)
-  const rowScopeStyles = useMemo(() => {
-    if (condFormats.length === 0 || numericCols.size === 0 || !adhocStats) return null;
-    const cellValueAt = (r: number, measure: string): number | null => {
-      if (!numericCols.has(measure)) return null;
-      const c = columnFieldNames.indexOf(measure);
-      if (c < 0) return null;
-      const raw = renderModel.rowHeader[r]?.fullPath[c];
-      if (raw === '' || raw == null) return null;
-      const n = typeof raw === 'number' ? raw : Number(raw);
-      return Number.isFinite(n) ? n : null;
-    };
-    return computeRowScopeStyles(
-      condFormats,
-      renderModel.rowHeader.length,
-      cellValueAt,
-      adhocStats.cutoffsByRuleId,
-    );
-  }, [renderModel.rowHeader, columnFieldNames, numericCols, condFormats, adhocStats]);
 
   return (
     <div
@@ -292,7 +294,7 @@ export function DetailRenderer({
           </tr>
         </thead>
         <tbody>
-          {renderModel.rowHeader.map((rn, r) => (
+          {rowHeaders.map((rn, r) => (
             <tr key={`adhoc-row-${r}`} data-testid={`adhoc-row-${r}`}>
               {Array.from({ length: rowHeaderLevels }).map((_, c) => {
                 const value = rn.fullPath[c] ?? '';

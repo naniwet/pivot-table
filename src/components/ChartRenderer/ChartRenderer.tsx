@@ -42,15 +42,30 @@ export interface ChartRendererProps {
    *   PivotTable 把它放 .pivot-table__main(flex column),自己加 flex:1 + minHeight:0 撑满。
    */
   height?: number | string;
+  /**
+   * P5+ 图表类型 picker — 传了则在 chart 右上角浮一个 segmented control
+   * (柱/线/饼 三选一,click 切换);不传 = 不显示 picker
+   */
+  chartTypePicker?: {
+    current: 'bar' | 'line' | 'pie';
+    onChange: (next: 'bar' | 'line' | 'pie') => void;
+  };
   className?: string;
   style?: CSSProperties;
 }
+
+const CHART_TYPE_LABELS: Record<'bar' | 'line' | 'pie', string> = {
+  bar: '柱状图',
+  line: '折线图',
+  pie: '饼图',
+};
 
 export function ChartRenderer({
   data,
   loading = false,
   error = null,
   height = '100%',
+  chartTypePicker,
   className,
   style,
 }: ChartRendererProps): ReactNode {
@@ -157,6 +172,30 @@ export function ChartRenderer({
       data-testid="chart-renderer"
       data-chart-type={data.type}
     >
+      {/* 图表类型 picker — 右上角浮 segmented control(toolbar 不再混入此控件) */}
+      {chartTypePicker && (
+        <div
+          className="chart-renderer__type-picker"
+          role="radiogroup"
+          aria-label="图表类型"
+          data-testid="chart-type-picker"
+        >
+          {(['bar', 'line', 'pie'] as const).map((t) => (
+            <button
+              key={t}
+              type="button"
+              role="radio"
+              aria-checked={chartTypePicker.current === t}
+              data-active={chartTypePicker.current === t ? 'true' : 'false'}
+              data-testid={`chart-type-${t}`}
+              className="chart-renderer__type-btn"
+              onClick={() => chartTypePicker.onChange(t)}
+            >
+              {CHART_TYPE_LABELS[t]}
+            </button>
+          ))}
+        </div>
+      )}
       {loading && (
         <div className="chart-renderer__overlay" data-testid="chart-renderer-loading">
           加载中…

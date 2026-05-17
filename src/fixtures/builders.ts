@@ -33,6 +33,7 @@ export function buildViewConfig(overrides: Partial<ViewConfig> = {}): ViewConfig
     columnSorts: [],
     pageState: { ...defaultPageState },
     customFields: [],
+    customRelations: [],
     extensions: null,
     ...overrides,
   };

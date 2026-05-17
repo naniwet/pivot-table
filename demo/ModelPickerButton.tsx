@@ -15,6 +15,7 @@
 import { useState } from 'react';
 
 import { ModelPicker, type PickedModel } from './ModelPicker.js';
+import { ModelIcon } from './ModelIcons.js';
 import type { SmartbiClient } from '../src/api/smartbi/SmartbiClient.js';
 
 export interface ModelPickerButtonProps {
@@ -35,12 +36,10 @@ export function ModelPickerButton({
 }: ModelPickerButtonProps) {
   const [open, setOpen] = useState(false);
 
-  // 只显示别名;没别名(老 config / 手填 ID)显示占位"未命名模型",绝不暴露 id
-  const display = currentModelName
-    ? `📊 ${currentModelName}`
-    : currentModelId
-      ? '📊 未命名模型'
-      : '📊 选择数据模型…';
+  // currentModelName 可能是完整 aliasPath('数据集\FoodWare\foodmart_0613_cs')
+  // 按钮窄,只显示**末段**(模型本身名),完整路径放 title tooltip
+  const lastSegment = (currentModelName ?? '').split(/[\\/]/).pop() ?? currentModelName ?? '';
+  const labelText = lastSegment || (currentModelId ? '未命名模型' : '选择数据模型…');
 
   return (
     <>
@@ -56,7 +55,10 @@ export function ModelPickerButton({
         }
         data-testid="model-picker-button"
       >
-        <span className="model-picker-btn__label">{display}</span>
+        <span className="model-picker-btn__icon" aria-hidden>
+          <ModelIcon />
+        </span>
+        <span className="model-picker-btn__label">{labelText}</span>
         <span className="model-picker-btn__chevron" aria-hidden>
           ⌄
         </span>

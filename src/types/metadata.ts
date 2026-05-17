@@ -66,7 +66,10 @@ export type FieldGroup = 'DIMENSION' | 'MEASURE' | 'NAMEDSET' | 'LEVEL' | null;
 
 /**
  * 节点类型枚举 — 跟新接口 nodes[i].type 对齐。
- * 注意 LEVEL 没有 LEVEL_GEO / LEVEL 等,只有时间专属 LEVEL_TIME_*;普通维度 leaf 是 FIELD/CALC。
+ *
+ * 2026-05-16 更新:除了时间 LEVEL_TIME_*,后端还会返回 LEVEL_GEO(地理层次的 level)
+ * 以及未来可能新增的 LEVEL_* 子类;union 加了 `LEVEL_GEO` 显式标识 + 末尾 `string`
+ * 兜底,让 nodeKind 通过 startsWith('LEVEL_') 一并归到 Dimension。
  */
 export type FieldNodeType =
   | 'DIMENSION_FOLDER'
@@ -80,6 +83,7 @@ export type FieldNodeType =
   | 'LEVEL_TIME_QUARTER'
   | 'LEVEL_TIME_MONTH'
   | 'LEVEL_TIME_DAY'
+  | 'LEVEL_GEO'
   | 'FIELD'
   | 'CALC'
   | 'CALC_GROUP'
@@ -87,7 +91,9 @@ export type FieldNodeType =
   | 'CALC_MEASURE'
   | 'NAMEDSET'
   | 'MEASURE_GROUP_NAME'
-  | 'MEASURE_GROUP_VALUE';
+  | 'MEASURE_GROUP_VALUE'
+  // 兜底 — 后端将来加新 LEVEL_* / HIERARCHY_* 等都能通过(渲染层 nodeKind 用 prefix 识别)
+  | (string & {});
 
 // ============================================================
 // nodes[] 节点(字段树 outline)

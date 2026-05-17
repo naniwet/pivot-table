@@ -13,6 +13,11 @@
  *
  * 不变量：标准 BI 严格层次合并 — 仅当上层 0..lvl-1 也相同才合并 lvl
  *   （和 buildColumnHeaderLevels 的 pathEqual(throughLevel) 完全对称）
+ *
+ * 参数 `merge` (P5+ 全局排序场景):
+ *   - true(默认):正常合并(分组内排序 / 无排序时,hierarchy 顺序自然连续)
+ *   - false:每个 cell 独立 rowSpan=1(全局排序 BASC/BDESC 时,后端打散 hierarchy,
+ *     合并会跨"碰巧相邻"的同 prefix 行,视觉上暗示分组但其实没有 — 误导)
  */
 
 function pathPrefixEqual(a: string[], b: string[], throughLevel: number): boolean {
@@ -22,11 +27,16 @@ function pathPrefixEqual(a: string[], b: string[], throughLevel: number): boolea
   return true;
 }
 
-export function buildRowHeaderSpans(paths: string[][]): number[][] {
+export function buildRowHeaderSpans(paths: string[][], merge = true): number[][] {
   const numRows = paths.length;
   if (numRows === 0) return [];
   // 取第一行的 length 作为 numLevels；其他行长度不一致时只到 numLevels
   const numLevels = paths[0]?.length ?? 0;
+
+  // merge=false: 不合并,每个 cell 都独立 rowSpan=1
+  if (!merge) {
+    return paths.map(() => Array<number>(numLevels).fill(1));
+  }
 
   const out: number[][] = [];
   for (let r = 0; r < numRows; r++) {

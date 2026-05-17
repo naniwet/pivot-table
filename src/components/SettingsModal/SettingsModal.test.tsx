@@ -55,10 +55,6 @@ describe('SettingsModal', () => {
     expect(screen.getByTestId('settings-subTotalAtEnd')).toBeInTheDocument();
     // 空值显示
     expect(screen.getByTestId('settings-emptyValueText')).toBeInTheDocument();
-    // 面板显示
-    expect(screen.getByTestId('settings-panelVisibility')).toBeInTheDocument();
-    // 导出最大行数
-    expect(screen.getByTestId('settings-exportMaxRows')).toBeInTheDocument();
     // 翻页模式
     expect(screen.getByTestId('settings-paginationMode')).toBeInTheDocument();
     // 显示模式
@@ -141,22 +137,32 @@ describe('SettingsModal', () => {
     expect(dispatch).toHaveBeenCalledWith({ type: 'SET_DISPLAY_OPTIONS', freezeHeader: true });
   });
 
-  it('panel toggles → onTogglePanel', () => {
-    const onTogglePanel = vi.fn();
+  it('空值显示使用组件化下拉并能选择预设', () => {
+    const dispatch = vi.fn();
     render(
       <SettingsModal
         open={true}
         onClose={vi.fn()}
         viewConfig={buildViewConfig()}
-        dispatch={vi.fn()}
-        panelVisibility={{ toolbar: false, fieldPanel: true, fieldTree: true }}
-        onTogglePanel={onTogglePanel}
+        dispatch={dispatch}
+        panelVisibility={defaultPanel}
+        onTogglePanel={vi.fn()}
         isAdhoc={false}
       />,
     );
-    const cb = screen.getByTestId('settings-panel-toolbar').querySelector('input')!;
-    expect(cb.checked).toBe(false);
-    fireEvent.click(cb);
-    expect(onTogglePanel).toHaveBeenCalledWith('toolbar', true);
+
+    const row = screen.getByTestId('settings-emptyValueText');
+    expect(row.querySelector('select')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('settings-emptyValueText-trigger'));
+    fireEvent.click(screen.getByRole('option', { name: '无数据' }));
+
+    expect(dispatch).toHaveBeenCalledWith({
+      type: 'SET_DISPLAY_OPTIONS',
+      emptyValueText: '无数据',
+    });
   });
+
+  // 2026-05-16:"面板显示"行删了(冗余)— 工具栏/字段树各自的 × 已能收起,
+  // panelVisibility / onTogglePanel props 仍在(向后兼容 hook caller),但 UI 不再渲染
 });

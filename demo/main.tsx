@@ -183,19 +183,14 @@ function App() {
     );
   }
 
-  // Fallback 路径:数据未齐 → 自己渲一个最小工具栏(放配置切换器)+ 状态消息
-  // 此时还没 ready,数据面板不渲染,modelPickerButton 暂时显示在 trailing 槽给用户操作
+  // Fallback 路径:数据未齐 → 最小工具栏(只放配置切换器)+ 状态消息
+  // ModelPickerButton 只在数据区出现(主路径)或嵌在 Hint 里(fallback "未选模型"时)— 不污染 toolbar
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
       <div className="toolbar">
         <div className="toolbar__leading" />
         <div className="toolbar__center" />
-        <div className="toolbar__trailing">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            {modelPickerButton}
-            {configManager}
-          </div>
-        </div>
+        <div className="toolbar__trailing">{configManager}</div>
       </div>
       <div style={{ flex: 1, minHeight: 0 }}>{renderFallbackBody()}</div>
     </div>
@@ -208,6 +203,9 @@ function App() {
         <Hint>
           <strong>加载失败:</strong>
           <pre style={{ whiteSpace: 'pre-wrap', fontSize: 12 }}>{loadError.message}</pre>
+          {client && activeConfig && (
+            <div style={{ marginTop: 12 }}>{modelPickerButton}</div>
+          )}
         </Hint>
       );
     }
@@ -227,8 +225,9 @@ function App() {
         <Hint>
           配置 <strong>{activeConfig.name}</strong> 还没选数据模型。
           <p style={{ color: '#6b7280', fontSize: 13, marginTop: 8 }}>
-            点顶部"📊 选择数据模型…"按钮浏览资源目录并选一个。
+            点下面按钮浏览资源目录并选一个。
           </p>
+          <div style={{ marginTop: 12 }}>{modelPickerButton}</div>
         </Hint>
       );
     }

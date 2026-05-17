@@ -56,6 +56,21 @@ describe('buildQuery', () => {
       expect(query.fields).toEqual([]);
     });
 
+    // 2026-05-17:把组件层 PivotTable.test.tsx 的 drill 链 query.rows 断言下沉到 core —
+    // 组件层只需要验 "drill ▶ click → onQuery 被再调",query 形态属于 buildQuery 职责
+    it('Hierarchy drillDepth=3(最深 level)→ query.rows = [省, 区, 市]', () => {
+      const viewConfig = buildViewConfig({
+        rows: [buildHierarchyRow({ drillDepth: 3 })],
+        values: [buildValueField()],
+      });
+
+      const query = buildQuery(viewConfig, orderModelMetadata, defaultPageState);
+
+      expect(query.rows).toEqual(['ShipProvince2', 'ShipRegion2', 'ShipCity2']);
+      expect(query.columns).toEqual([FIELD_IDS.salesMeasure]);
+      expect(query.fields).toEqual([]);
+    });
+
     it('should set default pageSettings flags', () => {
       const viewConfig = buildViewConfig({
         rows: [buildHierarchyRow()],
@@ -116,26 +131,34 @@ describe('buildQuery', () => {
   });
 
   describe('P3+ aggregator override / 多 ValueField 同 measure', () => {
-    it('aggregator=AVG → 发 MeasureField; columns ref 用 encoded name(@AGG@AVG)', () => {
+    // 2026-05-16:aggregator override 后端不识别 MeasureField.aggregator(silent bug,
+    // 数据 = 原 SUM 值)。改走 CustomMeasure customElement(原生支持的"换聚合"路径)
+    it('aggregator=AVG → emit CustomMeasure customElement,fields 不含 MeasureField', () => {
       const viewConfig = buildViewConfig({
         rows: [buildHierarchyRow()],
         values: [buildValueField({ aggregator: 'AVG' })],
       });
       const query = buildQuery(viewConfig, orderModelMetadata, defaultPageState);
-      // columns ref 是 encoded
+      // columns ref 仍是 encoded name(跟 CustomMeasure.measure.name 一致)
       expect(query.columns).toEqual([`${FIELD_IDS.salesMeasure}@AGG@AVG`]);
-      // fields 含 1 个 MeasureField,带 aggregator='AVG'
-      expect(query.fields).toEqual([
-        {
-          _enum: 'MeasureField',
-          name: `${FIELD_IDS.salesMeasure}@AGG@AVG`,
-          measure: FIELD_IDS.salesMeasure,
-          aggregator: 'AVG',
-        },
-      ]);
+      // fields 不含 aggregator-only MeasureField — 走 customElements
+      expect(query.fields).toEqual([]);
+      // customElements 含 1 个 CustomMeasure(measure.aggregator=AVG + binding 引用原 view+column)
+      const cms = query.customElements.filter(
+        (e: { _enum: string }) => e._enum === 'CustomMeasure',
+      );
+      expect(cms).toHaveLength(1);
+      const cm = cms[0] as {
+        measure: { name: string; aggregator: string; dataType: string };
+        measureBinding: { measure: string; view: string };
+      };
+      expect(cm.measure.name).toBe(`${FIELD_IDS.salesMeasure}@AGG@AVG`);
+      expect(cm.measure.aggregator).toBe('AVG');
+      expect(cm.measureBinding.measure).toBe(`${FIELD_IDS.salesMeasure}@AGG@AVG`);
+      expect(cm.measureBinding.view).toBeTruthy(); // fixture 提供了 ordersView
     });
 
-    it('同 measure 多 ValueField(默认 + AVG)→ columns 各自独立 ref + 1 个 MeasureField(只 AVG)', () => {
+    it('同 measure 多 ValueField(默认 + AVG)→ AVG 走 CustomMeasure,默认走原 measureName', () => {
       const viewConfig = buildViewConfig({
         rows: [buildHierarchyRow()],
         values: [
@@ -149,15 +172,16 @@ describe('buildQuery', () => {
         FIELD_IDS.salesMeasure,
         `${FIELD_IDS.salesMeasure}@AGG@AVG`,
       ]);
-      // 默认 chip 不发 MeasureField;AVG chip 发 MeasureField
-      expect(query.fields).toEqual([
-        {
-          _enum: 'MeasureField',
-          name: `${FIELD_IDS.salesMeasure}@AGG@AVG`,
-          measure: FIELD_IDS.salesMeasure,
-          aggregator: 'AVG',
-        },
-      ]);
+      // fields 不含 aggregator-only MeasureField
+      expect(query.fields).toEqual([]);
+      // customElements 多出来一个 CustomMeasure(AVG 那个 chip)
+      const cms = query.customElements.filter(
+        (e: { _enum: string }) => e._enum === 'CustomMeasure',
+      );
+      expect(cms).toHaveLength(1);
+      expect((cms[0] as { measure: { name: string } }).measure.name).toBe(
+        `${FIELD_IDS.salesMeasure}@AGG@AVG`,
+      );
     });
 
     it('同 measure + aggregator + quickCalc 组合 — 分隔符顺序 @AGG@<A>@QC@<E>', () => {
@@ -181,6 +205,49 @@ describe('buildQuery', () => {
           quickCalc: 'RowGlobalPercent', // collapse: {_enum:'X'} → 'X'
         },
       ]);
+    });
+  });
+
+  describe('P6 custom relation graph', () => {
+    it('customRelations → 追加到 customElements.CustomRelation', () => {
+      const viewConfig = buildViewConfig({
+        rows: [buildHierarchyRow()],
+        values: [buildValueField()],
+        customRelations: [
+          {
+            id: 'rel-orders-self',
+            name: '订单自关联',
+            enabled: true,
+            leftViewId: 'view-orders',
+            rightViewId: 'view-orders',
+            leftCardinality: 'ONE',
+            rightCardinality: 'MANY',
+            direction: 'Single',
+            conditions: [
+              {
+                leftFieldId: FIELD_IDS.cityCalcGroup,
+                rightFieldId: FIELD_IDS.cityCalcGroup,
+                operator: 'EQUALS',
+              },
+            ],
+            isWeak: true,
+            isFilter: false,
+          },
+        ],
+      });
+
+      const query = buildQuery(viewConfig, orderModelMetadata, defaultPageState);
+
+      expect(query.customElements).toContainEqual({
+        _enum: 'CustomRelation',
+        relation: expect.objectContaining({
+          left: 'orders',
+          right: 'orders',
+          leftCardinality: 'ONE',
+          rightCardinality: 'MANY',
+          direction: 'Single',
+        }),
+      });
     });
   });
 

@@ -76,7 +76,8 @@ export interface FieldTreeProps {
 type NodeKind = FieldType | 'folder';
 
 function nodeKind(node: FieldNode): NodeKind {
-  switch (node.type) {
+  const t = node.type;
+  switch (t) {
     case 'DIMENSION_FOLDER':
     case 'MEASURE_FOLDER':
     case 'NAMEDSET_FOLDER':
@@ -94,17 +95,19 @@ function nodeKind(node: FieldNode): NodeKind {
       return 'CalcMeasure';
     case 'NAMEDSET':
       return 'NamedSet';
-    // 普通维度叶子(LEVEL / FIELD / 时间 LEVEL)
-    case 'LEVEL':
-    case 'LEVEL_TIME_YEAR':
-    case 'LEVEL_TIME_QUARTER':
-    case 'LEVEL_TIME_MONTH':
-    case 'LEVEL_TIME_DAY':
-    case 'FIELD':
-    case 'MEASURE_GROUP_NAME':
-    case 'MEASURE_GROUP_VALUE':
-      return 'Dimension';
   }
+  // 普通维度叶子(LEVEL / FIELD / 各种 LEVEL_TIME_* / LEVEL_GEO / 未来新 LEVEL_*)
+  // 2026-05-16:之前 switch 只列举了 LEVEL_TIME_{YEAR,QUARTER,MONTH,DAY},地理
+  //   hierarchy 下的 LEVEL_GEO(或其他 LEVEL_ 子类)fallthrough 成 undefined kind
+  //   → 渲染时不可拖、灰显。改成 prefix 兜底,任何 LEVEL_* 都归 Dimension。
+  if (t === 'LEVEL' || t === 'FIELD' || t.startsWith('LEVEL_')) {
+    return 'Dimension';
+  }
+  if (t === 'MEASURE_GROUP_NAME' || t === 'MEASURE_GROUP_VALUE') {
+    return 'Dimension';
+  }
+  // 未知 type → 兜底当 Dimension(可拖、不灰显)— 总比 undefined 强
+  return 'Dimension';
 }
 
 // P0 可拖类型集合(NamedSet 故意排除 — 显示但不可拖)
@@ -141,14 +144,47 @@ function subtreeMatches(node: FieldNode, query: string): boolean {
  * 字段树不应暴露的内部字段类型:
  *   - MEASURE_GROUP_NAME / MEASURE_GROUP_VALUE: 后端"度量轴控制"虚拟字段,
  *     P3 起由 DropZones 的"Σ 度量名称"chip 自动管理,不需要用户从字段树拖。
+ *   - NAMEDSET / NAMEDSET_FOLDER: 命名集(用户 2026-05-16 反馈先隐藏,功能未接通)
+ *   - CALC_MEMBER / CALC_MEMBER_FOLDER: 计算成员(同上)
+ *   - MEMBER / MEMBER_FOLDER: 自定义成员桶(同上)
+ *     整个 subtree 隐藏(包括子节点)— set 命中即 return null,递归不再下钻。
  */
 const HIDDEN_FIELD_TYPES = new Set<FieldNode['type']>([
   'MEASURE_GROUP_NAME',
   'MEASURE_GROUP_VALUE',
+  'NAMEDSET',
+  'NAMEDSET_FOLDER',
+  'CALC_MEMBER',
+  'CALC_MEMBER_FOLDER',
+  'MEMBER',
+  'MEMBER_FOLDER',
 ]);
 
+/**
+ * 兜底名单 — 后端有些数据集把"成员"/"命名集"分组建成通用 `FOLDER` 类型,
+ * 仅靠 `node.name` 区分(name='member' / 'namedset' / 'calcmember')。
+ * 这层按 name 再过滤一次,跟类型过滤是 OR 关系:任一命中就整 subtree 隐藏。
+ * 2026-05-16 用户反馈:截图里 root tab "成员" 没去掉,name 字段是 "member"。
+ */
+const HIDDEN_FIELD_NAMES = new Set<string>([
+  'member',
+  'members',
+  'namedset',
+  'namedsets',
+  'named_set',
+  'calc_member',
+  'calcmember',
+  'calcmembers',
+]);
+
+function isHidden(n: FieldNode): boolean {
+  if (HIDDEN_FIELD_TYPES.has(n.type)) return true;
+  if (HIDDEN_FIELD_NAMES.has(n.name.toLowerCase())) return true;
+  return false;
+}
+
 function isRenderableFolderChild(n: FieldNode): boolean {
-  return isVisible(n) && !HIDDEN_FIELD_TYPES.has(n.type);
+  return isVisible(n) && !isHidden(n);
 }
 
 /**
@@ -188,7 +224,7 @@ interface RenderCtx {
 
 function renderNode(node: FieldNode, ctx: RenderCtx): ReactNode {
   if (!isVisible(node)) return null;
-  if (HIDDEN_FIELD_TYPES.has(node.type)) return null;
+  if (isHidden(node)) return null;
   if (ctx.query && !subtreeMatches(node, ctx.query)) return null;
 
   const kind = nodeKind(node);
@@ -428,7 +464,7 @@ function groupLeavesByView(metadata: Metadata): Array<{
   // 3. 扁平化 nodes[] 树,挑 leaf
   const buckets = new Map<string, FieldNode[]>();
   function walk(node: FieldNode): void {
-    if (!isVisible(node) || HIDDEN_FIELD_TYPES.has(node.type)) {
+    if (!isVisible(node) || isHidden(node)) {
       // folder 仍要进入 children
       for (const c of node.children) walk(c);
       return;

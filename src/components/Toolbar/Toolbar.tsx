@@ -12,7 +12,7 @@
  *   - Top-N 入口已移除(2026-05-06):原实现是"按 measure DESC 排序 + 改 pageSize" hack,
  *     不是真过滤,翻页就破功;真 Top-N 应作为 Filter.Top 加到维度过滤,等后端能力确认后重做。
  */
-import type { CSSProperties, ReactNode } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 
 export interface ToolbarProps {
   /**
@@ -35,6 +35,13 @@ export interface ToolbarProps {
   /** P5+ 导出 Excel 进行中 → 按钮 disabled + 文字显"导出中…" */
   exportingExcel?: boolean;
   /**
+   * P5+ 全量导出最大行数 — 2026-05-16 从 SettingsModal 移到导出按钮 popover 内联
+   * (导出场景下就近改参数,不必去设置面板找);CSV 模式忽略(仅当前页)。
+   */
+  exportMaxRows?: number;
+  /** 改 exportMaxRows 的回调;不传则 popover 里行数 input 灰显 */
+  onChangeExportMaxRows?: (n: number) => void;
+  /**
    * P5+ 进入浏览模式 — 不传则不渲染按钮。
    * 浏览模式 = 沉浸视图(隐藏所有 chrome,只看表格 + 滚动加载),用户用快速过表的场景。
    */
@@ -47,9 +54,13 @@ export interface ToolbarProps {
   displayMode?: 'table' | 'chart';
   /** P3+ 切换显示模式回调;不传则不渲染切换按钮 */
   onToggleDisplayMode?: () => void;
-  /** P3+ 图表类型 — 仅 displayMode='chart' 时显示选择器 */
+  /**
+   * P3+ 图表类型 — toolbar 不再渲染此控件(2026-05-16 移到 ChartRenderer 右上角)。
+   * Props 保留为 optional + 文档标记 deprecated,避免 break 现有调用方;内部完全忽略。
+   * @deprecated use ChartRenderer.chartTypePicker instead
+   */
   chartType?: 'bar' | 'line' | 'pie';
-  /** P3+ 切换图表类型回调 */
+  /** @deprecated 同 chartType */
   onChangeChartType?: (type: 'bar' | 'line' | 'pie') => void;
   /**
    * P5+ 即席查询(明细)模式开关
@@ -125,14 +136,16 @@ export function Toolbar({
   onRefresh,
   onExportCsv,
   onExportExcel,
+  exportMaxRows = 10000,
+  onChangeExportMaxRows,
   exportingExcel = false,
   onEnterBrowseMode,
   exportDisabled = false,
   onOpenSettings,
   displayMode = 'table',
   onToggleDisplayMode,
-  chartType = 'bar',
-  onChangeChartType,
+  // chartType / onChangeChartType 已废弃(picker 移到 ChartRenderer),声明但不解构,
+  // 避免 ESLint 报 unused 又不影响 TS optional-prop 兼容
   queryMode = 'pivot',
   onToggleQueryMode,
   canUndo = false,
@@ -286,21 +299,6 @@ export function Toolbar({
             </button>
           </div>
         )}
-        {/* 图表类型选择器:仅在 chart 模式 + pivot mode + 提供 onChangeChartType 时显示 */}
-        {displayMode === 'chart' && queryMode !== 'adhoc' && onChangeChartType && (
-          <select
-            data-testid="toolbar-chart-type"
-            className="toolbar-chart-type"
-            value={chartType}
-            onChange={(e) =>
-              onChangeChartType(e.target.value as 'bar' | 'line' | 'pie')
-            }
-          >
-            <option value="bar">柱状图</option>
-            <option value="line">折线图</option>
-            <option value="pie">饼图</option>
-          </select>
-        )}
         {/* P5+ 浏览模式入口 — 进入沉浸视图(隐藏所有 chrome + 滚动加载) */}
         {onEnterBrowseMode && (
           <button
@@ -327,35 +325,16 @@ export function Toolbar({
             <span>设置</span>
           </button>
         )}
-        {/* 导出动作 — 终结性、低频,放设置之后(最右) */}
-        <button
-          type="button"
-          data-testid="toolbar-export-csv"
-          className="toolbar-btn"
-          disabled={exportDisabled}
-          title="仅导出当前页（CSV 文本格式;大数据走 Excel 全量）"
-          onClick={() => {
-            if (!exportDisabled) onExportCsv();
-          }}
-        >
-          {ICON_DOWNLOAD}
-          <span>导出 CSV</span>
-        </button>
-        {onExportExcel && (
-          <button
-            type="button"
-            data-testid="toolbar-export-excel"
-            className="toolbar-btn"
-            disabled={exportDisabled || exportingExcel}
-            title="导出 Excel(xlsx 全量,最大行数在设置里改;数值列保留为可计算的 Number)"
-            onClick={() => {
-              if (!exportDisabled && !exportingExcel) onExportExcel();
-            }}
-          >
-            {ICON_DOWNLOAD}
-            <span>{exportingExcel ? '导出中…' : '导出 Excel'}</span>
-          </button>
-        )}
+        {/* 导出 — 合并 CSV/Excel 两个按钮 + 行数 input 为单一 popover
+            (2026-05-16 减少 toolbar 拥挤 + 行数 setting 内联到导出场景,无需翻设置) */}
+        <ExportButton
+          disabled={!!exportDisabled}
+          exportingExcel={!!exportingExcel}
+          exportMaxRows={exportMaxRows}
+          onChangeExportMaxRows={onChangeExportMaxRows}
+          onExportCsv={onExportCsv}
+          onExportExcel={onExportExcel}
+        />
       </div>
 
       <div className="toolbar__trailing" data-testid="toolbar-trailing">
@@ -364,3 +343,168 @@ export function Toolbar({
     </div>
   );
 }
+
+/**
+ * ExportButton — 合并"导出 CSV / 导出 Excel"两个按钮 + 内联 exportMaxRows 输入框
+ *
+ * UX:
+ *   - 主按钮 "导出 ▾" 点击弹 popover
+ *   - popover:类型 radio(CSV/Excel)+ 行数 input(仅 Excel 有效)+ 导出按钮
+ *   - CSV 选项 - 仅当前页(快,不重 fetch);Excel 选项 - 全量 + 行数限制
+ *
+ * 替代旧版"toolbar 上两个独立 download 按钮"+ "exportMaxRows 在 settings modal" 的分散 UX
+ */
+function ExportButton({
+  disabled,
+  exportingExcel,
+  exportMaxRows,
+  onChangeExportMaxRows,
+  onExportCsv,
+  onExportExcel,
+}: {
+  disabled: boolean;
+  exportingExcel: boolean;
+  exportMaxRows: number;
+  onChangeExportMaxRows?: (n: number) => void;
+  onExportCsv: () => void;
+  onExportExcel?: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  // 草稿行数 — popover 内编辑,点导出时才 commit 给 callback(避免边输入边触发 dispatch)
+  const [draftRows, setDraftRows] = useState<string>(String(exportMaxRows));
+  useEffect(() => {
+    setDraftRows(String(exportMaxRows));
+  }, [exportMaxRows]);
+  // 默认选 Excel(全量,更常用);若宿主没传 onExportExcel,自动落到 CSV
+  const [type, setType] = useState<'csv' | 'excel'>(onExportExcel ? 'excel' : 'csv');
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  const handleExport = () => {
+    if (disabled) return;
+    if (type === 'excel' && onExportExcel) {
+      // commit 行数(若改了)
+      const n = parseInt(draftRows, 10);
+      if (Number.isFinite(n) && n >= 100 && n !== exportMaxRows && onChangeExportMaxRows) {
+        onChangeExportMaxRows(Math.min(n, 100000));
+      }
+      if (!exportingExcel) onExportExcel();
+    } else {
+      onExportCsv();
+    }
+    setOpen(false);
+  };
+
+  return (
+    <div ref={wrapRef} className="toolbar__export">
+      <button
+        type="button"
+        className="toolbar-btn"
+        data-testid="toolbar-export"
+        disabled={disabled || exportingExcel}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        title="导出 — CSV(当前页)或 Excel(全量,可调行数)"
+        onClick={() => setOpen((v) => !v)}
+      >
+        {ICON_DOWNLOAD}
+        <span>{exportingExcel ? '导出中…' : '导出'}</span>
+        <svg
+          className="toolbar__export-caret"
+          width="10"
+          height="10"
+          viewBox="0 0 10 10"
+          aria-hidden
+        >
+          <path
+            d="M1.5 3.5L5 7L8.5 3.5"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            fill="none"
+          />
+        </svg>
+      </button>
+      {open && (
+        <div className="toolbar__export-popover" role="menu" data-testid="toolbar-export-popover">
+          <div className="toolbar__export-row" role="radiogroup" aria-label="导出类型">
+            <button
+              type="button"
+              role="radio"
+              aria-checked={type === 'csv'}
+              data-active={type === 'csv' ? 'true' : 'false'}
+              data-testid="toolbar-export-type-csv"
+              className="toolbar__export-type-btn"
+              onClick={() => setType('csv')}
+            >
+              CSV(当前页)
+            </button>
+            {onExportExcel && (
+              <button
+                type="button"
+                role="radio"
+                aria-checked={type === 'excel'}
+                data-active={type === 'excel' ? 'true' : 'false'}
+                data-testid="toolbar-export-type-excel"
+                className="toolbar__export-type-btn"
+                onClick={() => setType('excel')}
+              >
+                Excel(全量)
+              </button>
+            )}
+          </div>
+          {type === 'excel' && (
+            <div className="toolbar__export-row toolbar__export-rows">
+              <label htmlFor="toolbar-export-rows-input">最大行数</label>
+              <input
+                id="toolbar-export-rows-input"
+                type="number"
+                min={100}
+                max={100000}
+                step={100}
+                value={draftRows}
+                onChange={(e) => setDraftRows(e.target.value)}
+                data-testid="toolbar-export-rows-input"
+                disabled={!onChangeExportMaxRows}
+                title={
+                  onChangeExportMaxRows
+                    ? '导出 Excel 单次拉取的最大行数(100 - 100000)'
+                    : '宿主未提供修改回调,只读'
+                }
+              />
+            </div>
+          )}
+          <div className="toolbar__export-footer">
+            <button
+              type="button"
+              className="toolbar__export-confirm"
+              data-testid="toolbar-export-confirm"
+              disabled={disabled || (type === 'excel' && exportingExcel)}
+              onClick={handleExport}
+            >
+              {ICON_DOWNLOAD}
+              <span>导出</span>
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+

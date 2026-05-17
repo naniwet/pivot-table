@@ -33,6 +33,15 @@ describe('applyDrop — happy paths', () => {
     expect(after.rows).toEqual([{ fieldName: 'ShipProvince', type: 'Dimension' }]);
   });
 
+  it('drops CalcColumn into row/column as Dimension because query uses its CustomDimension', () => {
+    const before = buildViewConfig();
+    const rowAfter = applyDrop(before, 'row', 'cc_unit_price', 'CalcColumn');
+    expect(rowAfter.rows).toEqual([{ fieldName: 'cc_unit_price', type: 'Dimension' }]);
+
+    const columnAfter = applyDrop(before, 'column', 'cc_unit_price', 'CalcColumn');
+    expect(columnAfter.columns).toEqual([{ fieldName: 'cc_unit_price', type: 'Dimension' }]);
+  });
+
   it('drops CalcGroup into column zone', () => {
     const before = buildViewConfig();
     const after = applyDrop(before, 'column', '城市分组', 'CalcGroup');

@@ -91,4 +91,42 @@ describe('buildRowHeaderSpans', () => {
     const result = buildRowHeaderSpans([['A'], ['A', 'B']]);
     expect(result.length).toBe(2);
   });
+
+  // 2026-05-16 P5+ 全局排序场景:merge=false 关闭合并,每个 cell 独立
+  it('merge=false → 每个 cell rowSpan=1(全局排序场景,后端打散 hierarchy)', () => {
+    const paths = [
+      ['2024', 'Q4'], // BASC 后实际行顺序乱
+      ['2023', 'Q2'],
+      ['2023', 'Q3'],
+      ['2023', 'Q1'],
+      ['2024', 'Q2'],
+    ];
+    expect(buildRowHeaderSpans(paths, false)).toEqual([
+      [1, 1],
+      [1, 1],
+      [1, 1],
+      [1, 1],
+      [1, 1],
+    ]);
+  });
+
+  it('merge=false + 相邻行 prefix 碰巧相同 → 仍不合并(防止误导)', () => {
+    // 即使 2023/Q2 和 2023/Q3 相邻同 Year,也不合并(因为全局排序下"相邻"是巧合)
+    expect(buildRowHeaderSpans([['2023', 'Q2'], ['2023', 'Q3']], false)).toEqual([
+      [1, 1],
+      [1, 1],
+    ]);
+  });
+
+  it('merge=true(默认)行为不变 — 回归', () => {
+    expect(buildRowHeaderSpans([['A', '1'], ['A', '2']])).toEqual([
+      [2, 1],
+      [0, 1],
+    ]);
+    // 显式 merge=true 等价于默认
+    expect(buildRowHeaderSpans([['A', '1'], ['A', '2']], true)).toEqual([
+      [2, 1],
+      [0, 1],
+    ]);
+  });
 });

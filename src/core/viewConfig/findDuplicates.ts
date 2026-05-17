@@ -28,15 +28,28 @@ import type {
   RowField,
   ValueField,
 } from '../../types/viewConfig.js';
+import { quickCalcKey } from './quickCalcs.js';
 
-/** quickCalc → 稳定 key 串(序列化 enum + dateLevel) */
+/**
+ * quickCalc → 稳定 key 串(用于 dedup)
+ *
+ * 2026-05-16 修:quickCalc 字符串形态('GlobalPercent' 等简单 _enum 的实际 wire format,
+ * 见 quickCalcs.ts 注释)以前被这里的 `typeof qc !== 'object'` 守卫排除掉,返回 '',
+ * 导致 "销售额" 跟 "销售额(占总计%)" 被算成同 key → 渲染层标红 ⚠ + buildQuery first-wins
+ * dedup 把后者直接过滤掉 → 切快速计算后查询不发出。
+ *
+ * 统一走 quickCalcKey(它同时认字符串 + 对象);time intelligence 的 dateLevel 区分
+ * 用 stringify 兜底(不同 dateLevel 是不同 quickCalc instance,不应该 dedup)。
+ */
 function qcKey(qc: QuickCalculation | null | undefined): string {
-  if (!qc || typeof qc !== 'object') return '';
-  if ('_enum' in qc) {
-    const obj = qc as { _enum: string; dateLevel?: string };
-    return obj.dateLevel ? `${obj._enum}:${obj.dateLevel}` : obj._enum;
+  const base = quickCalcKey(qc);
+  if (!base) return '';
+  // time intelligence 等带 dateLevel 的对象 — 把整个序列化进 key,避免不同 level 撞
+  if (qc && typeof qc === 'object' && 'dateLevel' in qc) {
+    const dateLevel = (qc as { dateLevel?: string }).dateLevel;
+    if (dateLevel) return `${base}:${dateLevel}`;
   }
-  return '';
+  return base;
 }
 
 /** ValueField → dedup key */

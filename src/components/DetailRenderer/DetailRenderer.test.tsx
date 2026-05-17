@@ -92,6 +92,33 @@ describe('DetailRenderer', () => {
     expect(screen.getByTestId('pivot-no-data')).toBeInTheDocument();
   });
 
+  it('D3: 从空结果切到明细数据时不触发 hook 顺序错误', () => {
+    const rows = makeRowHeaderNodes([['江苏']]);
+    const rm = makeRenderModel(rows, [[makeCell('江苏')]]);
+    const viewConfig = buildViewConfig({ rows: [{ fieldName: 'province', type: 'Dimension' }] });
+    const { rerender } = render(
+      <DetailRenderer
+        renderModel={null}
+        viewConfig={viewConfig}
+        onSortClick={vi.fn()}
+        rowFieldLabels={['省份']}
+      />,
+    );
+
+    expect(screen.getByTestId('pivot-no-data')).toBeInTheDocument();
+
+    rerender(
+      <DetailRenderer
+        renderModel={rm}
+        viewConfig={viewConfig}
+        onSortClick={vi.fn()}
+        rowFieldLabels={['省份']}
+      />,
+    );
+
+    expect(screen.getByTestId('adhoc-cell-r0-c0')).toHaveTextContent('江苏');
+  });
+
   it('D4: 有 rows + 非空 renderModel → 渲染表头 + 数据行', () => {
     const rows = makeRowHeaderNodes([['江苏', '华东'], ['浙江', '华东']]);
     const cells = [[makeCell('江苏'), makeCell('华东')], [makeCell('浙江'), makeCell('华东')]];

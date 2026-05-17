@@ -203,6 +203,48 @@ describe('SmartbiClient.fetchCatalogChildren — 资源目录 lazy 树', () => {
   });
 });
 
+describe('SmartbiClient.searchCatalog — 关键词搜索(返回多条 root-to-hit 路径)', () => {
+  const SAMPLE_PATHS: CatalogNode[][] = [
+    [
+      { id: 'ROOT', name: 'PUBLIC_DATASET', alias: '数据集', desc: '', type: 'DEFAULT_TREENODE', children: null, pid: null, aliasPath: '数据集' },
+      { id: 'folder-1', name: 'FoodWare', alias: 'FoodWare', desc: '', type: 'DEFAULT_TREENODE', children: null, pid: 'ROOT', aliasPath: '数据集\\FoodWare' },
+      { id: 'model-1', name: 'foodware_0613', alias: 'foodware_0613', desc: '', type: 'AUGMENTED_DATASET', children: null, pid: 'folder-1', aliasPath: '数据集\\FoodWare\\foodware_0613' },
+    ],
+  ];
+
+  it('POST /api/catalogs/nodesAndParent 携带 condition + acceptType', async () => {
+    const fetch = makeFetch(JSON.stringify(SAMPLE_PATHS));
+    const client = new SmartbiClient({ baseUrl: 'http://x/smartbi', fetch });
+    const result = await client.searchCatalog('foodware');
+
+    const [url, init] = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0]!;
+    expect(url).toBe('http://x/smartbi/api/catalogs/nodesAndParent');
+    const body = JSON.parse((init as RequestInit).body as string);
+    expect(body.condition).toBe('foodware');
+    expect(body.purview).toBe('READ');
+    expect(body.limit).toBe(-1);
+    // 注意:这个接口字段名是 acceptType(单数),跟 fetchCatalogChildren 的 acceptTypes(复数)不一样
+    expect(body.acceptType).toEqual([...DEFAULT_CATALOG_ACCEPT_TYPES]);
+    expect(result).toEqual(SAMPLE_PATHS);
+  });
+
+  it('支持自定义 acceptTypes(过滤,只搜模型不搜文件夹)', async () => {
+    const fetch = makeFetch(JSON.stringify([]));
+    const client = new SmartbiClient({ baseUrl: 'http://x', fetch });
+    await client.searchCatalog('xx', undefined, ['AUGMENTED_DATASET']);
+    const body = JSON.parse(
+      ((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0]![1] as RequestInit).body as string,
+    );
+    expect(body.acceptType).toEqual(['AUGMENTED_DATASET']);
+  });
+
+  it('非数组响应 → throw(防御)', async () => {
+    const fetch = makeFetch(JSON.stringify({ error: 'oops' }));
+    const client = new SmartbiClient({ baseUrl: 'http://x', fetch });
+    await expect(client.searchCatalog('xx')).rejects.toThrow(/expected array/);
+  });
+});
+
 describe('isCatalogLeaf / isCatalogFolder', () => {
   const node = (type: string): CatalogNode => ({
     id: 'x', name: 'x', alias: 'x', desc: '', type, children: null, pid: null, aliasPath: '',

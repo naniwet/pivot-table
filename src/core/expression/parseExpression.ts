@@ -6,7 +6,7 @@
  *   term     := factor (('*' | '/') factor)*        // 左结合
  *   factor   := num
  *             | field                              // [字段]
- *             | aggCall                            // SUM(expr) / AVG / COUNT / MAX / MIN
+ *             | stringCall                         // SUBSTRING / LEFT / RIGHT / LENGTH / TRIM
  *             | '(' expr ')'
  *             | '-' factor                         // 一元负
  *
@@ -14,7 +14,7 @@
  *   - NUMBER：整数或小数
  *   - FIELD：[xxx]（不含 ]）
  *   - IDENT：字母 + 字母/数字/下划线
- *   - 单字符 token：( ) + - * /
+ *   - 单字符 token：( ) , + - * /
  *   - 空白忽略
  *
  * 错误：lexer/parser 出错抛 Error，UI 层 catch 后 highlight。
@@ -24,16 +24,24 @@ export type Expr =
   | { type: 'num'; value: number }
   | { type: 'field'; name: string }
   | { type: 'binop'; op: '+' | '-' | '*' | '/'; left: Expr; right: Expr }
-  | { type: 'agg'; fn: 'SUM' | 'AVG' | 'COUNT' | 'MAX' | 'MIN'; arg: Expr }
+  | { type: 'strfn'; fn: StringFuncName; args: Expr[] }
   | { type: 'unary'; op: '-'; expr: Expr };
 
-const AGG_FUNCS = new Set(['SUM', 'AVG', 'COUNT', 'MAX', 'MIN']);
+export type StringFuncName = 'SUBSTRING' | 'LEFT' | 'RIGHT' | 'LENGTH' | 'TRIM';
+
+const STRING_FUNCS: Record<StringFuncName, number> = {
+  SUBSTRING: 3,
+  LEFT: 2,
+  RIGHT: 2,
+  LENGTH: 1,
+  TRIM: 1,
+};
 
 type Token =
   | { type: 'num'; value: number }
   | { type: 'field'; name: string }
   | { type: 'ident'; name: string }
-  | { type: 'punct'; value: '(' | ')' | '+' | '-' | '*' | '/' };
+  | { type: 'punct'; value: '(' | ')' | ',' | '+' | '-' | '*' | '/' };
 
 function tokenize(source: string): Token[] {
   const out: Token[] = [];
@@ -82,7 +90,7 @@ function tokenize(source: string): Token[] {
       continue;
     }
     // 单字符 punct
-    if ('()+-*/'.includes(ch)) {
+    if ('(),+-*/'.includes(ch)) {
       out.push({ type: 'punct', value: ch as '(' });
       i++;
       continue;
@@ -102,7 +110,7 @@ class Parser {
   private consume(): Token | null {
     return this.tokens[this.pos++] ?? null;
   }
-  private expectPunct(p: '(' | ')' | '+' | '-' | '*' | '/'): void {
+  private expectPunct(p: '(' | ')' | ',' | '+' | '-' | '*' | '/'): void {
     const t = this.consume();
     if (!t || t.type !== 'punct' || t.value !== p) {
       throw new Error(`预期 "${p}"，实际 ${t ? this.tokenLabel(t) : 'EOF'}`);
@@ -181,16 +189,34 @@ class Parser {
     if (t.type === 'ident') {
       this.consume();
       const upper = t.name.toUpperCase();
-      if (!AGG_FUNCS.has(upper)) {
-        throw new Error(`未知函数 "${t.name}"（仅支持 SUM/AVG/COUNT/MAX/MIN）`);
+      if (!(upper in STRING_FUNCS)) {
+        throw new Error(
+          `未知函数 "${t.name}"（仅支持 SUBSTRING/LEFT/RIGHT/LENGTH/TRIM）`,
+        );
       }
       this.expectPunct('(');
-      const arg = this.parseExpr();
+      const args: Expr[] = [];
+      const close = this.peek();
+      if (!close || close.type !== 'punct' || close.value !== ')') {
+        while (true) {
+          args.push(this.parseExpr());
+          const sep = this.peek();
+          if (sep && sep.type === 'punct' && sep.value === ',') {
+            this.consume();
+            continue;
+          }
+          break;
+        }
+      }
       this.expectPunct(')');
+      const expected = STRING_FUNCS[upper as StringFuncName];
+      if (args.length !== expected) {
+        throw new Error(`${upper} 参数个数错误：需要 ${expected} 个，实际 ${args.length} 个`);
+      }
       return {
-        type: 'agg',
-        fn: upper as 'SUM' | 'AVG' | 'COUNT' | 'MAX' | 'MIN',
-        arg,
+        type: 'strfn',
+        fn: upper as StringFuncName,
+        args,
       };
     }
     throw new Error(`无法解析的 token：${this.tokenLabel(t)}`);

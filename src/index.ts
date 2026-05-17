@@ -144,6 +144,7 @@ export {
   PivotRenderer,
   type PivotRendererProps,
 } from './components/PivotRenderer/PivotRenderer.js';
+export { RelationGraphPanel } from './components/RelationGraphPanel/RelationGraphPanel.js';
 export { Pagination, type PaginationProps } from './components/Pagination/Pagination.js';
 export { Toolbar, type ToolbarProps } from './components/Toolbar/Toolbar.js';
 export { PivotTable, type PivotTableProps } from './components/PivotTable/PivotTable.js';

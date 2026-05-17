@@ -81,6 +81,72 @@ describe('buildAdhocQuery', () => {
     // measure / column / customField 状态保留在 viewConfig 但 adhoc query 不带
   });
 
+  it('切到明细:rows 只保留原有字段,自定义字段不带入 query.rows', () => {
+    const vc = buildViewConfig({
+      rows: [
+        { fieldName: 'ShipProvince2', type: 'Dimension' },
+        { fieldName: 'cc_unit_price', type: 'Dimension' },
+        { fieldName: 'eg_region', type: 'EnumGroup' },
+      ],
+      customFields: [
+        {
+          id: 'cc_unit_price',
+          name: '均价',
+          kind: 'calc_column',
+          dataFormat: '0.00',
+          expression: '[销售额]/[数量]',
+          ast: null,
+        },
+        {
+          id: 'eg_region',
+          name: '自定义区域',
+          kind: 'enum_group',
+          baseField: 'ShipProvince2',
+          groups: [],
+          ungroupedHandling: 'show_individually',
+        },
+      ],
+    });
+    const q = buildAdhocQuery(vc, orderModelMetadata, defaultPageState);
+    expect(q.rows).toEqual(['ShipProvince2']);
+  });
+
+  it('切到明细:filters / rowSorts 里的自定义字段不带入 DetailQuery', () => {
+    const vc = buildViewConfig({
+      rows: [{ fieldName: 'ShipProvince2', type: 'Dimension' }],
+      filters: [
+        buildLeafFilter({ field: 'eg_region', value: ['华东'] }),
+        buildLeafFilter({ field: 'ShipProvince2', value: ['江苏'] }),
+      ],
+      rowSorts: [
+        { type: 'ByDimension', fieldName: 'eg_region', direction: 'ASC' },
+        { type: 'ByDimension', fieldName: 'ShipProvince2', direction: 'DESC' },
+      ],
+      customFields: [
+        {
+          id: 'eg_region',
+          name: '自定义区域',
+          kind: 'enum_group',
+          baseField: 'ShipProvince2',
+          groups: [],
+          ungroupedHandling: 'show_individually',
+        },
+      ],
+    });
+    const q = buildAdhocQuery(vc, orderModelMetadata, defaultPageState);
+    expect(q.dimensionFilter).toEqual({
+      filter: {
+        _enum: 'ByLevel',
+        level: 'ShipProvince2',
+        operator: 'In',
+        value: ['江苏'],
+      },
+    });
+    expect(q.rowSorts).toEqual([
+      { _enum: 'DimensionSort', dimension: 'ShipProvince2', direction: 'DESC' },
+    ]);
+  });
+
   it('I5: BASC/BDESC 自动降级到 ASC/DESC', () => {
     const vc = buildViewConfig({
       rows: [{ fieldName: 'ShipProvince2', type: 'Dimension' }],

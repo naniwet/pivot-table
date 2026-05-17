@@ -33,6 +33,8 @@ const ROW_COL_TYPE_MAP: Record<string, RowColFieldType> = {
   NamedSet: 'NamedSet',
   EnumGroup: 'EnumGroup',
   RangeGroup: 'RangeGroup',
+  // CalcColumn 在 query.customElements 里生成 CustomDimension,行/列轴引用该 dimension name。
+  CalcColumn: 'Dimension',
   MeasureGroupName: 'MeasureGroupName',
 };
 

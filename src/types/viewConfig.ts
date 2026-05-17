@@ -460,6 +460,37 @@ export type CustomField =
   | CustomRangeGroupField
   | CustomDimAsMeasureField;
 
+// ===== 查询级关系图覆盖(P6+) =====
+
+export type RelationCardinality = 'ONE' | 'MANY';
+export type RelationDirection = 'Single' | 'Both';
+
+export interface CustomRelationCondition {
+  leftFieldId: string;
+  rightFieldId: string;
+  operator: 'EQUALS';
+}
+
+/**
+ * 查询级临时关系。
+ *
+ * 语义:基于 metadata.relationGraph 的本次分析覆盖层,不写回数据模型。
+ * buildQuery 会把 enabled 的项翻译成 CustomRelation customElement。
+ */
+export interface CustomRelationConfig {
+  id: string;
+  name: string;
+  enabled: boolean;
+  leftViewId: string;
+  rightViewId: string;
+  leftCardinality: RelationCardinality;
+  rightCardinality: RelationCardinality;
+  direction: RelationDirection;
+  conditions: CustomRelationCondition[];
+  isWeak?: boolean;
+  isFilter?: boolean;
+}
+
 // ===== ViewConfig 顶层 =====
 
 export interface ViewConfig {
@@ -474,6 +505,8 @@ export interface ViewConfig {
   pageState: PageState;
   /** P2 引入；P0/P1 必须能正确序列化为 [] */
   customFields: CustomField[];
+  /** P6+ 查询级关系图覆盖层;undefined 视为 [] 以兼容旧序列化 */
+  customRelations?: CustomRelationConfig[];
   /**
    * P5+ 查询模式:
    *   - 'pivot'(默认):多维透视,用 PivotQuery,支持度量/聚合/快算/树状/图表

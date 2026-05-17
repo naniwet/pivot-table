@@ -31,6 +31,12 @@ import {
   isCatalogLeaf,
   type CatalogNode,
 } from '../src/api/smartbi/SmartbiClient.js';
+import {
+  FolderIcon,
+  FolderOpenIcon,
+  ModelIcon,
+  SpinnerIcon,
+} from './ModelIcons.js';
 
 export interface PickedModel {
   id: string;
@@ -65,6 +71,11 @@ export function ModelPicker({
   const [selectedId, setSelectedId] = useState<string | null>(initialModelId ?? null);
   const [selectedNode, setSelectedNode] = useState<CatalogNode | null>(null);
 
+  // 搜索 state — query 非空时 picker 切到 flat 结果列表(替代 tree 浏览)
+  const [query, setQuery] = useState('');
+  const [searchPaths, setSearchPaths] = useState<CatalogNode[][] | null>(null);
+  const [searching, setSearching] = useState(false);
+
   useEffect(() => {
     let cancelled = false;
     setRootNodes(null);
@@ -81,6 +92,38 @@ export function ModelPicker({
       cancelled = true;
     };
   }, [client]);
+
+  // 搜索 — debounce 300ms 后调 API,query 空 / cleared 时回到 tree
+  useEffect(() => {
+    const trimmed = query.trim();
+    if (!trimmed) {
+      setSearchPaths(null);
+      setSearching(false);
+      return;
+    }
+    setSearching(true);
+    const handle = setTimeout(() => {
+      let cancelled = false;
+      client
+        .searchCatalog(trimmed)
+        .then((paths) => {
+          if (!cancelled) {
+            setSearchPaths(paths);
+            setSearching(false);
+          }
+        })
+        .catch((e: unknown) => {
+          if (!cancelled) {
+            setError(e instanceof Error ? e.message : String(e));
+            setSearching(false);
+          }
+        });
+      return () => {
+        cancelled = true;
+      };
+    }, 300);
+    return () => clearTimeout(handle);
+  }, [client, query]);
 
   const toggleFolder = async (node: CatalogNode) => {
     // 已展开 → 折叠(从缓存里删)
@@ -129,15 +172,14 @@ export function ModelPicker({
     const isExpanded = expanded.has(node.id);
     const isLoading = loading.has(node.id);
     const isSelected = leaf && selectedId === node.id;
-    const indicator = folder ? (isExpanded ? '▼' : '▶') : '　';
-    const icon = leaf ? '📊' : '📁';
     return (
-      <div key={node.id}>
+      <div key={node.id} className="model-picker__row" data-depth={depth}>
         <div
           className={
-            'model-picker__node' + (isSelected ? ' model-picker__node--selected' : '')
+            'model-picker__node' +
+            (leaf ? ' model-picker__node--leaf' : ' model-picker__node--folder') +
+            (isSelected ? ' model-picker__node--selected' : '')
           }
-          style={{ paddingLeft: `${depth * 16 + 8}px` }}
           onClick={() => {
             if (folder) {
               void toggleFolder(node);
@@ -154,25 +196,40 @@ export function ModelPicker({
           }}
           data-testid={`model-picker-node-${node.id}`}
           data-leaf={leaf ? 'true' : 'false'}
+          title={leaf ? node.aliasPath : undefined}
         >
-          <span className="model-picker__indicator">{indicator}</span>
-          <span className="model-picker__icon">{isLoading ? '⏳' : icon}</span>
+          <span
+            className={
+              'model-picker__chevron' +
+              (folder ? ' model-picker__chevron--folder' : ' model-picker__chevron--leaf')
+            }
+            aria-hidden
+          >
+            {folder && (isExpanded ? '▼' : '▶')}
+          </span>
+          <span
+            className={
+              'model-picker__icon' +
+              (leaf ? ' model-picker__icon--leaf' : ' model-picker__icon--folder')
+            }
+            aria-hidden
+          >
+            {isLoading ? (
+              <SpinnerIcon />
+            ) : leaf ? (
+              <ModelIcon />
+            ) : isExpanded ? (
+              <FolderOpenIcon />
+            ) : (
+              <FolderIcon />
+            )}
+          </span>
           <span className="model-picker__label">{node.alias || node.name}</span>
-          {leaf && (
-            <span className="model-picker__id" title={node.id}>
-              {node.id.slice(0, 12)}…
-            </span>
-          )}
         </div>
         {folder && isExpanded && (
           <div className="model-picker__children">
             {(expanded.get(node.id) ?? []).length === 0 ? (
-              <div
-                className="model-picker__empty"
-                style={{ paddingLeft: `${(depth + 1) * 16 + 8}px` }}
-              >
-                (空)
-              </div>
+              <div className="model-picker__empty model-picker__empty--inline">(空)</div>
             ) : (
               (expanded.get(node.id) ?? []).map((c) => renderNode(c, depth + 1))
             )}
@@ -199,13 +256,55 @@ export function ModelPicker({
         data-testid="model-picker-dialog"
       >
         <h3 className="model-picker__title">选择数据模型</h3>
+        <div className="model-picker__search">
+          <input
+            type="search"
+            className="model-picker__search-input"
+            data-testid="model-picker-search"
+            placeholder="搜索模型名…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            autoFocus
+          />
+          {searching && <span className="model-picker__search-spinner" aria-hidden>…</span>}
+        </div>
         {error && (
           <div className="model-picker__error" data-testid="model-picker-error">
             加载失败:{error}
           </div>
         )}
         <div className="model-picker__tree" data-testid="model-picker-tree">
-          {rootNodes === null ? (
+          {searchPaths !== null ? (
+            // 搜索结果模式 — flat 列表(每条 path 取末尾 = hit;leaf 才可点)
+            searchPaths.length === 0 ? (
+              <div className="model-picker__empty">
+                {searching ? '搜索中…' : `无匹配:"${query.trim()}"`}
+              </div>
+            ) : (
+              searchPaths.map((path, i) => {
+                const hit = path[path.length - 1];
+                if (!hit) return null;
+                return (
+                  <SearchResultRow
+                    key={`${hit.id}-${i}`}
+                    node={hit}
+                    selectedId={selectedId}
+                    onPick={() => {
+                      if (isCatalogLeaf(hit)) {
+                        selectLeaf(hit);
+                      }
+                    }}
+                    onDoubleClickPick={() => {
+                      if (isCatalogLeaf(hit)) {
+                        selectLeaf(hit);
+                        setTimeout(confirm, 0);
+                      }
+                    }}
+                  />
+                );
+              })
+            )
+          ) : rootNodes === null ? (
             <div className="model-picker__loading">加载中…</div>
           ) : rootNodes.length === 0 ? (
             <div className="model-picker__empty">目录为空</div>
@@ -215,8 +314,12 @@ export function ModelPicker({
         </div>
         {selectedNode && (
           <div className="model-picker__selected" data-testid="model-picker-selected">
-            已选:<strong>{selectedNode.alias || selectedNode.name}</strong>
-            <span className="model-picker__selected-path">({selectedNode.aliasPath})</span>
+            <span>已选:</span>
+            <strong>{selectedNode.alias || selectedNode.name}</strong>
+            {selectedNode.aliasPath && selectedNode.aliasPath !==
+              (selectedNode.alias || selectedNode.name) && (
+              <span className="model-picker__selected-path">{selectedNode.aliasPath}</span>
+            )}
           </div>
         )}
         <div className="model-picker__footer">
@@ -242,3 +345,56 @@ export function ModelPicker({
     </div>
   );
 }
+
+/**
+ * 搜索结果单行 — flat 显示 hit 节点(icon + 别名 + aliasPath secondary)
+ *   - leaf 可选中 / 双击直接确认
+ *   - folder 显示但不可点(指引用户去 tree 浏览)
+ */
+function SearchResultRow({
+  node,
+  selectedId,
+  onPick,
+  onDoubleClickPick,
+}: {
+  node: CatalogNode;
+  selectedId: string | null;
+  onPick: () => void;
+  onDoubleClickPick: () => void;
+}): React.ReactNode {
+  const leaf = isCatalogLeaf(node);
+  const isSelected = leaf && selectedId === node.id;
+  return (
+    <div
+      className={
+        'model-picker__node' +
+        (leaf ? ' model-picker__node--leaf' : ' model-picker__node--folder') +
+        (isSelected ? ' model-picker__node--selected' : '') +
+        (!leaf ? ' model-picker__node--disabled' : '')
+      }
+      onClick={leaf ? onPick : undefined}
+      onDoubleClick={leaf ? onDoubleClickPick : undefined}
+      data-testid={`model-picker-search-row-${node.id}`}
+      data-leaf={leaf ? 'true' : 'false'}
+      title={node.aliasPath || node.alias || node.name}
+    >
+      <span className="model-picker__chevron model-picker__chevron--leaf" aria-hidden />
+      <span
+        className={
+          'model-picker__icon' +
+          (leaf ? ' model-picker__icon--leaf' : ' model-picker__icon--folder')
+        }
+        aria-hidden
+      >
+        {leaf ? <ModelIcon /> : <FolderIcon />}
+      </span>
+      <span className="model-picker__search-row-text">
+        <span className="model-picker__label">{node.alias || node.name}</span>
+        {node.aliasPath && (
+          <span className="model-picker__search-row-path">{node.aliasPath}</span>
+        )}
+      </span>
+    </div>
+  );
+}
+

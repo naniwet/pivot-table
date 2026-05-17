@@ -5,9 +5,9 @@
  *   - 字段引用 [字段名]（alias）
  *   - 数字字面量 123 / 0.5 / -1
  *   - 算术 + - * /  + 括号
- *   - 聚合函数 SUM() AVG() COUNT() MAX() MIN()
+ *   - 计算列字符串函数 SUBSTRING() LEFT() RIGHT() LENGTH() TRIM()
  *
- * 明确拒绝：IF / CASE / 字符串/时间函数 / MDX 操作 / 自定义函数
+ * 明确拒绝：IF / CASE / 字符串字面量 / 时间函数 / 聚合函数 / MDX 操作 / 自定义函数
  */
 import { describe, expect, it } from 'vitest';
 
@@ -79,35 +79,49 @@ describe('parseExpression — 二元算术', () => {
   });
 });
 
-describe('parseExpression — 聚合函数', () => {
-  it('SUM([销售额])', () => {
-    expect(parseExpression('SUM([销售额])')).toEqual({
-      type: 'agg',
-      fn: 'SUM',
-      arg: { type: 'field', name: '销售额' },
+describe('parseExpression — 字符串函数', () => {
+  it('SUBSTRING([名称], 1, 3)', () => {
+    expect(parseExpression('SUBSTRING([名称], 1, 3)')).toEqual({
+      type: 'strfn',
+      fn: 'SUBSTRING',
+      args: [
+        { type: 'field', name: '名称' },
+        { type: 'num', value: 1 },
+        { type: 'num', value: 3 },
+      ],
     });
   });
 
-  it('AVG / COUNT / MAX / MIN 各支持', () => {
-    expect((parseExpression('AVG([X])') as { fn: string }).fn).toBe('AVG');
-    expect((parseExpression('COUNT([X])') as { fn: string }).fn).toBe('COUNT');
-    expect((parseExpression('MAX([X])') as { fn: string }).fn).toBe('MAX');
-    expect((parseExpression('MIN([X])') as { fn: string }).fn).toBe('MIN');
+  it('LEFT / RIGHT / LENGTH / TRIM 各支持', () => {
+    expect((parseExpression('left([X], 2)') as { fn: string }).fn).toBe('LEFT');
+    expect((parseExpression('RIGHT([X], 2)') as { fn: string }).fn).toBe('RIGHT');
+    expect((parseExpression('LENGTH([X])') as { fn: string }).fn).toBe('LENGTH');
+    expect((parseExpression('TRIM([X])') as { fn: string }).fn).toBe('TRIM');
   });
 
-  it('聚合参数可以是表达式：SUM([A] + [B])', () => {
-    const ast = parseExpression('SUM([A] + [B])') as { arg: { type: string } };
-    expect(ast.arg.type).toBe('binop');
+  it('字符串函数参数可以是表达式', () => {
+    const ast = parseExpression('SUBSTRING([A], 1 + 1, 3)') as { args: { type: string }[] };
+    expect(ast.args[1]).toEqual({
+      type: 'binop',
+      op: '+',
+      left: { type: 'num', value: 1 },
+      right: { type: 'num', value: 1 },
+    });
   });
 
-  it('SUM([A]) - SUM([B])', () => {
-    const ast = parseExpression('SUM([A]) - SUM([B])');
+  it('字符串函数可参与表达式:LENGTH([A]) - LENGTH([B])', () => {
+    const ast = parseExpression('LENGTH([A]) - LENGTH([B])');
     expect(ast).toEqual({
       type: 'binop',
       op: '-',
-      left: { type: 'agg', fn: 'SUM', arg: { type: 'field', name: 'A' } },
-      right: { type: 'agg', fn: 'SUM', arg: { type: 'field', name: 'B' } },
+      left: { type: 'strfn', fn: 'LENGTH', args: [{ type: 'field', name: 'A' }] },
+      right: { type: 'strfn', fn: 'LENGTH', args: [{ type: 'field', name: 'B' }] },
     });
+  });
+
+  it('函数参数个数不对 → throw', () => {
+    expect(() => parseExpression('SUBSTRING([A], 1)')).toThrow(/参数个数/);
+    expect(() => parseExpression('LEFT([A])')).toThrow(/参数个数/);
   });
 
   it('未知函数 → throw', () => {
@@ -134,6 +148,12 @@ describe('parseExpression — 业务样例（PRD 附录 C 期望工作）', () =
 describe('parseExpression — 反例（PRD 附录 C 必须拒绝）', () => {
   it('IF 表达式 → throw', () => {
     expect(() => parseExpression('IF([A] > 0, 1, 0)')).toThrow();
+  });
+
+  it('聚合函数不再支持 → throw', () => {
+    for (const fn of ['SUM', 'AVG', 'COUNT', 'MAX', 'MIN']) {
+      expect(() => parseExpression(`${fn}([A])`)).toThrow(/未知函数/);
+    }
   });
 
   it('字符串字面量 → throw', () => {

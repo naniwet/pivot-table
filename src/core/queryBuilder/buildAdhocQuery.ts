@@ -39,6 +39,30 @@ function downgradeDir(d: 'ASC' | 'DESC' | 'BASC' | 'BDESC'): 'ASC' | 'DESC' {
   return d === 'BASC' ? 'ASC' : d === 'BDESC' ? 'DESC' : d;
 }
 
+function makeCustomFieldIdSet(viewConfig: ViewConfig): Set<string> {
+  return new Set(viewConfig.customFields.map((field) => field.id));
+}
+
+function isCustomFieldName(fieldName: string, customFieldIds: ReadonlySet<string>): boolean {
+  return customFieldIds.has(fieldName);
+}
+
+function keepOriginalFilters(
+  filters: ClientFilter[],
+  customFieldIds: ReadonlySet<string>,
+): ClientFilter[] {
+  const out: ClientFilter[] = [];
+  for (const filter of filters) {
+    if (filter.kind === 'leaf') {
+      if (!isCustomFieldName(filter.field, customFieldIds)) out.push(filter);
+      continue;
+    }
+    const children = keepOriginalFilters(filter.children, customFieldIds);
+    if (children.length > 0) out.push({ ...filter, children });
+  }
+  return out;
+}
+
 // ============================================================
 // adhoc 下 Measure 当原始列过滤(场景 1 — 销售额>500)的预处理
 // ============================================================
@@ -210,10 +234,13 @@ export function buildAdhocQuery(
   metadata: Metadata,
   pageState: PageState,
 ): Query {
+  const customFieldIds = makeCustomFieldIdSet(rawViewConfig);
   // P5+ 翻译前 first-wins dedup — 同 buildQuery,避免后端 406(adhoc rows 重复字段)
   const viewConfig: ViewConfig = {
     ...rawViewConfig,
-    rows: dedupRowFields(rawViewConfig.rows),
+    rows: dedupRowFields(
+      rawViewConfig.rows.filter((r) => !isCustomFieldName(r.fieldName, customFieldIds)),
+    ),
   };
   const index = buildMetadataIndex(metadata);
 
@@ -225,7 +252,7 @@ export function buildAdhocQuery(
   // 维度过滤:adhoc 唯一支持的过滤通道。
   // 预处理:把 dim filter 树里指向 measure 的 leaf 替换成 synth dim(见 preprocessAdhocFilters)
   const { filters: resolvedFilters, customDimensions } = preprocessAdhocFilters(
-    viewConfig.filters,
+    keepOriginalFilters(viewConfig.filters, customFieldIds),
     metadata,
   );
   const dimensionFilter = ((): { filter: Filter } | null => {
@@ -236,6 +263,7 @@ export function buildAdhocQuery(
   // rowSorts:BASC/BDESC 自动降级
   const rowSorts = viewConfig.rowSorts
     .filter((s) => s.type === 'ByDimension') // adhoc 没度量,只有按维度排序
+    .filter((s) => !isCustomFieldName((s as { fieldName: string }).fieldName, customFieldIds))
     .map((s) => ({
       _enum: 'DimensionSort' as const,
       dimension: (s as { fieldName: string }).fieldName,

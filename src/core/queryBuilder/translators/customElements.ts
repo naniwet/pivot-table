@@ -119,8 +119,8 @@ function collectFieldRefs(ast: Expr): string[] {
       case 'unary':
         walk(node.expr);
         return;
-      case 'agg':
-        walk(node.arg);
+      case 'strfn':
+        for (const arg of node.args) walk(arg);
         return;
       case 'num':
         return;
@@ -130,23 +130,83 @@ function collectFieldRefs(ast: Expr): string[] {
   return out;
 }
 
+function inferCalcColumnValueType(ast: Expr): 'DOUBLE' | 'STRING' {
+  if (ast.type === 'strfn' && ast.fn !== 'LENGTH') return 'STRING';
+  return 'DOUBLE';
+}
+
+
+/**
+ * 构造 alias → measure-name 映射(给 calc_measure 表达式翻译到 MDX 用):
+ *   用户输入 `[销售额]`(alias)→ MDX 应该输出 `[Measures].[销售额_m]`(name)
+ *   2026-05-16 用户澄清:editor 用 alias,wire 必须 name
+ */
+function buildMeasureAliasToName(metadata: Metadata): Map<string, string> {
+  const m = new Map<string, string>();
+  for (const meas of metadata.measures) {
+    const alias = meas.alias || meas.aliasFromDb || meas.name;
+    if (alias && !m.has(alias)) m.set(alias, meas.name);
+    // 也允许用户直接用 name 引用(向后兼容)— name → name identity
+    if (!m.has(meas.name)) m.set(meas.name, meas.name);
+  }
+  return m;
+}
+
+/**
+ * 构造 alias → 物理列名 映射(给 calc_column 表达式翻译到 SQL 用):
+ *   用户输入 `[销售额]`(alias,可能跟 sqlColumnName 一致也可能不)→ SQL 输出 `[<sqlColumnName>]`
+ *   覆盖 fields / levels / measures 三类(每类都可能"关联到原始列")
+ */
+function buildColumnAliasToName(metadata: Metadata): Map<string, string> {
+  const m = new Map<string, string>();
+  // fields:alias → sqlColumnName(fallback aliasFromDb / name)
+  for (const f of metadata.fields) {
+    const col = f.sqlColumnName || f.aliasFromDb || f.name;
+    const alias = f.alias || f.aliasFromDb || f.name;
+    if (alias && !m.has(alias)) m.set(alias, col);
+    if (!m.has(f.name)) m.set(f.name, col); // name 兜底(向后兼容)
+  }
+  // levels:通过 refDataSetFieldId 反查 fields[].sqlColumnName
+  const fieldsById = new Map(metadata.fields.map((f) => [f.id, f] as const));
+  for (const lv of metadata.levels) {
+    const refField = lv.refDataSetFieldId ? fieldsById.get(lv.refDataSetFieldId) : undefined;
+    const col = refField?.sqlColumnName || refField?.name || lv.sqlColumnName || lv.name;
+    const alias = lv.alias || lv.aliasFromDb || lv.name;
+    if (alias && !m.has(alias)) m.set(alias, col);
+    if (!m.has(lv.name)) m.set(lv.name, col);
+  }
+  // measures:通过 refDataSetFieldId 反查 fields[]
+  for (const meas of metadata.measures) {
+    const refField = meas.refDataSetFieldId
+      ? fieldsById.get(meas.refDataSetFieldId)
+      : undefined;
+    const col = refField?.sqlColumnName || refField?.name || meas.aliasFromDb || meas.name;
+    const alias = meas.alias || meas.aliasFromDb || meas.name;
+    if (alias && !m.has(alias)) m.set(alias, col);
+    if (!m.has(meas.name)) m.set(meas.name, col);
+  }
+  return m;
+}
 
 export function translateCustomElements(
   customFields: CustomField[],
   metadata: Metadata,
 ): CustomElement[] {
   const out: CustomElement[] = [];
+  // 2026-05-16:editor 用 alias,wire 用 name — 两个 mapping 一次性 build,calc_measure / calc_column 共用
+  const measureAliasToName = buildMeasureAliasToName(metadata);
+  const columnAliasToName = buildColumnAliasToName(metadata);
   for (const cf of customFields) {
     if (cf.kind === 'calc_measure') {
       // 2026-05-07 probe 实测(scripts/probe-calc-measure.ts):
       //   - measure.name = cf.id(query.columns 引用的就是 cf.id,后端按 name 在 customElements 里 lookup)
       //   - measure.alias = cf.name(用户给的显示名)
-      //   - measure.expr = astToMdx(ast)(MDX 字符串,不是用户业务表达式;不是 ast 对象)
+      //   - measure.expr = astToMdx(ast, alias→name)(MDX 字符串;alias 翻成 measure name)
       //   - 必填:desc / category / dataType / dataFormat / maskRule
       // ast 缺失(老序列化)→ 跳过该 customElement(buildQuery 上游 validate 不变,
       //   后端会报 measure not found,提示用户重存一次)
       if (!cf.ast) continue;
-      const expr = astToMdx(cf.ast as Expr);
+      const expr = astToMdx(cf.ast as Expr, (alias) => measureAliasToName.get(alias));
       out.push({
         _enum: 'CustomCalcMeasure',
         measure: {
@@ -180,7 +240,17 @@ export function translateCustomElements(
         // 纯字面量 — 没列引用,无法判定 view,跳过
         continue;
       }
-      const refFields = refs.map((n) => metadata.fields.find((f) => f.name === n));
+      // 2026-05-16:refs 是 alias(用户编辑器输入),按 alias 查 fields/levels/measures 找 view
+      // (fields.alias / fields.name 都查,兼容 alias=name 的常见情况 + 用户用 name 引用)
+      const refFields = refs.map((n) => {
+        // 优先按 alias 找,fallback 按 name(不同字段的 alias 可能跟另一字段的 name 重复,但
+        // 走 alias 优先级匹配用户感知)
+        const byAlias = metadata.fields.find(
+          (f) => (f.alias || f.aliasFromDb) === n,
+        );
+        if (byAlias) return byAlias;
+        return metadata.fields.find((f) => f.name === n) ?? null;
+      });
       if (refFields.some((f) => !f)) continue; // 有 column 找不到 → 跳过
       const viewIds = new Set(refFields.map((f) => f!.viewId));
       if (viewIds.size > 1) continue; // 跨 view → 跳过
@@ -189,8 +259,12 @@ export function translateCustomElements(
       if (!view) continue;
 
       const colName = `${cf.id}_col`;
-      // calc_column 的 ast.field.name 已经是物理列名,resolver 用 identity
-      const expr = astToCalcColumnExpr(cf.ast as Expr, (name) => name);
+      const valueType = inferCalcColumnValueType(cf.ast as Expr);
+      // calc_column 的 ast.field.name 是 alias(用户编辑器输入),用 columnAliasToName
+      // 翻成物理列名(sqlColumnName)— 2026-05-16 用户澄清:editor 用 alias,wire 用 name
+      const expr = astToCalcColumnExpr(cf.ast as Expr, (alias) =>
+        columnAliasToName.get(alias) ?? alias,
+      );
 
       // 1) CustomColumn(define = CalcColumn) — 行级表达式列
       out.push({
@@ -200,8 +274,8 @@ export function translateCustomElements(
           name: colName,
           alias: cf.name,
           desc: '',
-          valueType: 'DOUBLE',
-          columnType: 'DOUBLE',
+          valueType,
+          columnType: valueType,
           dataFormat: cf.dataFormat,
           visible: true,
           maskRules: '',
@@ -225,7 +299,7 @@ export function translateCustomElements(
               desc: '',
               levelType: { _enum: 'GENERIC' },
               dataFormat: cf.dataFormat,
-              valueType: 'DOUBLE',
+              valueType,
               maskRule: '',
             },
           ],

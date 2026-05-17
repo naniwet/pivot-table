@@ -114,11 +114,12 @@ function replaceRootChildren(
 }
 
 describe('FieldTree', () => {
-  it('renders three top-level groups: 维度 / 度量 / 命名集', () => {
+  // 2026-05-16:命名集功能未接通,先隐藏 NAMEDSET_FOLDER 整 subtree
+  it('renders top-level groups: 维度 / 度量(命名集已隐藏)', () => {
     render(<FieldTree metadata={orderModelMetadata} onFieldDragStart={vi.fn()} />);
     expect(screen.getByText('维度')).toBeInTheDocument();
     expect(screen.getByText('度量')).toBeInTheDocument();
-    expect(screen.getByText('命名集')).toBeInTheDocument();
+    expect(screen.queryByText('命名集')).not.toBeInTheDocument();
   });
 
   it('renders fields by alias (not name)', () => {
@@ -161,8 +162,8 @@ describe('FieldTree', () => {
     expect(onDrag).toHaveBeenCalledWith(FIELD_IDS.salesMeasure, 'Measure');
   });
 
-  it('does NOT call onFieldDragStart when dragging a NamedSet (P0: 显示但不可拖)', () => {
-    // 给 NAMEDSET_FOLDER root 加一个 NAMEDSET 子节点
+  // 2026-05-16:命名集整 subtree 隐藏 — 自然不可拖也不渲染
+  it('NamedSet 整 subtree 隐藏(folder + 子节点都不渲染)', () => {
     const namedsetRoot = findRootByType(orderModelMetadata, 'NAMEDSET_FOLDER');
     const namedsetChild = makeNode({
       id: 'ns_1',
@@ -175,12 +176,44 @@ describe('FieldTree', () => {
       order: 0,
     });
     const withNamedSet = replaceRootChildren(orderModelMetadata, 'NAMEDSET_FOLDER', [namedsetChild]);
-    const onDrag = vi.fn();
-    render(<FieldTree metadata={withNamedSet} onFieldDragStart={onDrag} />);
-    const node = screen.getByText('Top10 客户').closest('[data-field-type]')!;
-    expect(node).toHaveAttribute('data-draggable', 'false');
-    fireEvent.dragStart(node);
-    expect(onDrag).not.toHaveBeenCalled();
+    render(<FieldTree metadata={withNamedSet} onFieldDragStart={vi.fn()} />);
+    expect(screen.queryByText('命名集')).not.toBeInTheDocument();
+    expect(screen.queryByText('Top10 客户')).not.toBeInTheDocument();
+  });
+
+  // 2026-05-16:用户反馈截图 — 后端建的"成员"分组 name=member 且 type 是通用 FOLDER,
+  // 仅 HIDDEN_FIELD_TYPES 抓不住;需按 name 兜底过滤(member / namedset / calcmember 等)
+  it('按 name="member" 兜底隐藏(type=FOLDER 也命中)', () => {
+    // 直接 mock 一个 root level 的 FOLDER 节点(模拟用户截图里的"成员"tab)
+    const memberFolder = makeNode({
+      id: 'member_root',
+      name: 'member',
+      alias: '成员',
+      aliasFromDb: '成员',
+      type: 'FOLDER',
+      group: null,
+      parentId: null,
+      order: 99,
+      children: [
+        makeNode({
+          id: 'm1',
+          name: '一线城市',
+          alias: '一线城市',
+          aliasFromDb: '一线城市',
+          type: 'FIELD',
+          group: 'DIMENSION',
+          parentId: 'member_root',
+          order: 0,
+        }),
+      ],
+    });
+    const withMember: Metadata = {
+      ...orderModelMetadata,
+      nodes: [...orderModelMetadata.nodes, memberFolder, ...memberFolder.children],
+    };
+    render(<FieldTree metadata={withMember} onFieldDragStart={vi.fn()} />);
+    expect(screen.queryByText('成员')).not.toBeInTheDocument();
+    expect(screen.queryByText('一线城市')).not.toBeInTheDocument();
   });
 
   it('filters tree by searchQuery (alias substring, case-insensitive)', () => {
@@ -248,32 +281,8 @@ describe('FieldTree', () => {
     );
   });
 
-  it('right-click on a NamedSet (P0 不可拖) does NOT trigger onFieldContextMenu', () => {
-    // 不可拖的节点也不应有右键菜单(一致性)。NamedSet 在 P0 是显示但不可拖的。
-    const namedsetRoot = findRootByType(orderModelMetadata, 'NAMEDSET_FOLDER');
-    const namedsetChild = makeNode({
-      id: 'ns_1',
-      name: 'top10',
-      alias: 'Top10',
-      aliasFromDb: 'Top10',
-      type: 'NAMEDSET',
-      group: 'NAMEDSET',
-      parentId: namedsetRoot.id,
-      order: 0,
-    });
-    const withNamedSet = replaceRootChildren(orderModelMetadata, 'NAMEDSET_FOLDER', [namedsetChild]);
-    const onContext = vi.fn();
-    render(
-      <FieldTree
-        metadata={withNamedSet}
-        onFieldDragStart={vi.fn()}
-        onFieldContextMenu={onContext}
-      />,
-    );
-    const node = screen.getByText('Top10').closest('[data-field-type]')!;
-    fireEvent.contextMenu(node);
-    expect(onContext).not.toHaveBeenCalled();
-  });
+  // 2026-05-16:命名集整 subtree 隐藏后,自然 querySelector 找不到节点就没右键能触发
+  // (上面的"NamedSet 整 subtree 隐藏"测试已覆盖该路径)
 
   it('right-click on a folder does NOT trigger onFieldContextMenu', () => {
     // 文件夹（维度/度量根节点）不是 field，没有"添加到 X"语义。

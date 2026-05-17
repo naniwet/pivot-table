@@ -12,10 +12,11 @@ import { describe, expect, it, vi } from 'vitest';
 import { Toolbar } from './Toolbar.js';
 
 describe('Toolbar — buttons', () => {
+  // 2026-05-16:CSV/Excel 两个按钮合并成单一 "导出 ▾" + popover(类型 radio + 行数)
   it('renders refresh and export buttons', () => {
     render(<Toolbar onRefresh={vi.fn()} onExportCsv={vi.fn()} />);
     expect(screen.getByTestId('toolbar-refresh')).toBeInTheDocument();
-    expect(screen.getByTestId('toolbar-export-csv')).toBeInTheDocument();
+    expect(screen.getByTestId('toolbar-export')).toBeInTheDocument();
   });
 
   it('calls onRefresh on refresh click', async () => {
@@ -26,24 +27,28 @@ describe('Toolbar — buttons', () => {
     expect(onRefresh).toHaveBeenCalled();
   });
 
-  it('calls onExportCsv on export click', async () => {
+  it('点 toolbar-export → 弹 popover → 选 CSV → 点确定调 onExportCsv', async () => {
     const onExportCsv = vi.fn();
     render(<Toolbar onRefresh={vi.fn()} onExportCsv={onExportCsv} />);
     const user = userEvent.setup();
-    await user.click(screen.getByTestId('toolbar-export-csv'));
+    await user.click(screen.getByTestId('toolbar-export'));
+    // 没传 onExportExcel → 默认 type 自动落到 csv
+    await user.click(screen.getByTestId('toolbar-export-confirm'));
     expect(onExportCsv).toHaveBeenCalled();
   });
 
   it('disables export button when exportDisabled=true (no data)', () => {
     render(<Toolbar onRefresh={vi.fn()} onExportCsv={vi.fn()} exportDisabled />);
-    expect(screen.getByTestId('toolbar-export-csv')).toBeDisabled();
+    expect(screen.getByTestId('toolbar-export')).toBeDisabled();
   });
 
-  it('does not call onExportCsv when disabled', async () => {
+  it('does not call onExportCsv when disabled (button itself disabled,popover 也不能弹)', async () => {
     const onExportCsv = vi.fn();
     render(<Toolbar onRefresh={vi.fn()} onExportCsv={onExportCsv} exportDisabled />);
     const user = userEvent.setup();
-    await user.click(screen.getByTestId('toolbar-export-csv'));
+    await user.click(screen.getByTestId('toolbar-export'));
+    // 按钮 disabled → click 无效,popover 不渲染
+    expect(screen.queryByTestId('toolbar-export-popover')).not.toBeInTheDocument();
     expect(onExportCsv).not.toHaveBeenCalled();
   });
 

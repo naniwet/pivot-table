@@ -220,6 +220,44 @@ export class SmartbiClient {
     return json as CatalogNode[];
   }
 
+  /**
+   * 按关键词搜索资源目录 — 返回多条完整路径(root → hit),每条路径里最后一个 node 是匹配项。
+   *   - 用户在 ModelPicker 输入搜索 → 调用本方法,把结果扁平成 hit 列表
+   *   - 路径信息用于显示 aliasPath(用户能知道命中节点在哪个文件夹下)
+   *   - acceptType 跟 fetchCatalogChildren 同语义(默认拉所有"文件夹 + 各类模型/数据集")
+   */
+  async searchCatalog(
+    keyword: string,
+    ctx?: { signal?: AbortSignal },
+    acceptTypes: readonly string[] = DEFAULT_CATALOG_ACCEPT_TYPES,
+  ): Promise<CatalogNode[][]> {
+    const url = `${this.baseUrl}/api/catalogs/nodesAndParent`;
+    const res = await this.fetchFn(
+      url,
+      this.buildInit({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json;charset=UTF-8' },
+        body: JSON.stringify({
+          condition: keyword,
+          purview: 'READ',
+          limit: -1,
+          // 注意:后端这个接口字段叫 acceptType(单数);fetchCatalogChildren 用 acceptTypes(复数)
+          acceptType: [...acceptTypes],
+          ignoreNoResourceFolder: false,
+        }),
+        signal: ctx?.signal,
+      }),
+    );
+    if (!res.ok) throw await this.errorFromResponse(res, 'searchCatalog');
+    const json = (await res.json()) as unknown;
+    if (!Array.isArray(json)) {
+      throw new Error(
+        `[smartbi:searchCatalog] expected array of paths, got ${typeof json}`,
+      );
+    }
+    return json as CatalogNode[][];
+  }
+
   private buildInit(extra: RequestInit): RequestInit {
     const headers = new Headers(extra.headers);
     headers.set('Accept', 'application/json, text/plain, */*; charset=utf-8');

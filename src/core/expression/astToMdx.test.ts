@@ -4,8 +4,8 @@
  * PRD §9 翻译规则：
  *   - [字段] → [Measures].[字段]
  *   - 算术 +/-/* / 直接拼接 + 括号保证优先级
- *   - SUM([X]) → Sum({...}, [Measures].[X])（实际 set 由后端补，前端仅占位 {...}）
  *   - 数字直接输出
+ *   - 字符串函数只支持计算列,不翻译为 MDX
  *
  * 后端实际 MDX 形态待联调（PRD 阻塞项 8）；本模块按合理假设实现，便于改。
  */
@@ -42,19 +42,22 @@ describe('astToMdx', () => {
   });
 
   it('SUM 包装 → Sum({...}, [Measures].[X])', () => {
-    const ast = parseExpression('SUM([销售额])');
-    expect(astToMdx(ast)).toBe('Sum({...}, [Measures].[销售额])');
+    expect(() => parseExpression('SUM([销售额])')).toThrow(/未知函数/);
   });
 
-  it('AVG / MAX / MIN 各自首字母大写', () => {
-    expect(astToMdx(parseExpression('AVG([X])'))).toBe('Avg({...}, [Measures].[X])');
-    expect(astToMdx(parseExpression('MAX([X])'))).toBe('Max({...}, [Measures].[X])');
-    expect(astToMdx(parseExpression('MIN([X])'))).toBe('Min({...}, [Measures].[X])');
-    expect(astToMdx(parseExpression('COUNT([X])'))).toBe('Count({...}, [Measures].[X])');
+  it('AVG / MAX / MIN / COUNT 不再支持', () => {
+    for (const fn of ['AVG', 'MAX', 'MIN', 'COUNT']) {
+      expect(() => parseExpression(`${fn}([X])`)).toThrow(/未知函数/);
+    }
   });
 
   it('一元负：-[X]', () => {
     const ast = parseExpression('-[X]');
     expect(astToMdx(ast)).toBe('-[Measures].[X]');
+  });
+
+  it('字符串函数不支持翻译为 MDX(仅计算列可用)', () => {
+    const ast = parseExpression('LEFT([X], 2)');
+    expect(() => astToMdx(ast)).toThrow(/字符串函数/);
   });
 });

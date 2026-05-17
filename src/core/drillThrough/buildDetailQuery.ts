@@ -17,9 +17,9 @@
  *   - measureFilters: []  (DetailQuery 无聚合,度量过滤无意义)
  *   - pageSettings: rowPageSize=10000(PRD §3.3 明细上限)
  *
- * **不支持自建字段(calc_measure/enum_group/range_group)**:
- *   后端 DetailQuery 不解析 customElements,前端 UI 层判断 viewConfig.customFields 非空时
- *   禁用"查看明细"入口(canViewDetail 函数)
+ * **自建字段 cell 的限制在 useCellMenu 做**:
+ *   后端 DetailQuery 不解析 customElements;单元格右键时只要当前 cell 对应的 measure
+ *   不是 customField.id,就允许查看明细。
  *
  * 不变量:
  *   - 度量 member(dimension='Measures')跳过 filter(那是当前在看哪个度量,不是限定条件)
@@ -28,7 +28,7 @@
  */
 
 import type { Member } from '../../types/cellSet.js';
-import type { Metadata, ViewConfig } from '../../types/index.js';
+import type { ClientFilter, Metadata, RowField, ViewConfig } from '../../types/index.js';
 import type { Query, FieldFilter } from '../../types/query.js';
 import { buildMetadataIndex } from '../metadata/fieldIndex.js';
 import { buildPageSettings } from '../queryBuilder/translators/pageSettings.js';
@@ -64,6 +64,42 @@ function memberToFieldFilter(member: Member): FieldFilter | null {
   };
 }
 
+function makeOriginalFieldGuard(
+  viewConfig: ViewConfig,
+): (fieldName: string) => boolean {
+  const customFieldIds = new Set(viewConfig.customFields.map((field) => field.id));
+  return (fieldName: string) => !customFieldIds.has(fieldName);
+}
+
+function keepOriginalRowColFields<T extends RowField>(
+  fields: T[],
+  isOriginalField: (fieldName: string) => boolean,
+): T[] {
+  return fields.filter(
+    (field) =>
+      field.type === 'MeasureGroupName' ||
+      field.type === 'NamedSet' ||
+      isOriginalField(field.fieldName),
+  );
+}
+
+function keepOriginalFilters(
+  filters: ClientFilter[],
+  isOriginalField: (fieldName: string) => boolean,
+): ClientFilter[] {
+  const out: ClientFilter[] = [];
+  for (const filter of filters) {
+    if (filter.kind === 'leaf') {
+      if (isOriginalField(filter.field)) out.push(filter);
+      continue;
+    }
+
+    const children = keepOriginalFilters(filter.children, isOriginalField);
+    if (children.length > 0) out.push({ ...filter, children });
+  }
+  return out;
+}
+
 export interface BuildDetailQueryInput {
   viewConfig: ViewConfig;
   metadata: Metadata;
@@ -79,11 +115,16 @@ export function buildDetailQuery(input: BuildDetailQueryInput): Query {
   const { viewConfig, metadata, rowMember, colMember } = input;
   const maxRows = input.maxRows ?? DRILL_THROUGH_MAX_ROWS;
   const index = buildMetadataIndex(metadata);
+  const isOriginalField = makeOriginalFieldGuard(viewConfig);
 
   // rows: 当前 viewConfig.rows + columns 字段(展开 hierarchy levels;MeasureGroupName 跳)
   // — 用户语义"看明细"= 看当前透视表那些字段的原始记录(同字段集,只是不聚合)
-  const dimRows = viewConfig.rows.filter((r) => r.type !== 'MeasureGroupName');
-  const dimCols = viewConfig.columns.filter((c) => c.type !== 'MeasureGroupName');
+  const dimRows = keepOriginalRowColFields(viewConfig.rows, isOriginalField).filter(
+    (r) => r.type !== 'MeasureGroupName',
+  );
+  const dimCols = keepOriginalRowColFields(viewConfig.columns, isOriginalField).filter(
+    (c) => c.type !== 'MeasureGroupName',
+  );
 
   // 度量字段:只带普通 Measure(每行一个数值),跳过 CalcMeasure(聚合表达式无明细概念)
   // UserCalcMeasure(自建)已被 canViewDetail 整体挡住,不会到这里
@@ -126,17 +167,20 @@ export function buildDetailQuery(input: BuildDetailQueryInput): Query {
   //   - 单元格右键场景:这些 FieldFilter 跟 dimensionFilter 同时发,后端隐式 AND
   const cellFilters: FieldFilter[] = [];
   for (const m of rowMember) {
+    if (!isOriginalField(m.fieldName)) continue;
     const f = memberToFieldFilter(m);
     if (f) cellFilters.push(f);
   }
   for (const m of colMember) {
+    if (!isOriginalField(m.fieldName)) continue;
     const f = memberToFieldFilter(m);
     if (f) cellFilters.push(f);
   }
 
   // 维度过滤:viewConfig.filters → query.dimensionFilter(嵌套 And/Or 树)
   // 跟 cellFilters 顶层 AND(后端两路同时生效)
-  const dimFilter = translateDimensionFilter(viewConfig.filters);
+  const originalFilters = keepOriginalFilters(viewConfig.filters, isOriginalField);
+  const dimFilter = translateDimensionFilter(originalFilters);
 
   return {
     modelId: metadata.id,
@@ -165,13 +209,12 @@ export function buildDetailQuery(input: BuildDetailQueryInput): Query {
 }
 
 /**
- * 检查当前 viewConfig 是否能"查看明细"。
- *   - 包含自建字段(calc_measure / enum_group / range_group)→ false
- *     (后端 DetailQuery 不解析 customElements;前端禁用入口避免发废 query)
- *   - 否则 true
+ * 检查当前 viewConfig 是否具备"查看明细"的全局能力。
+ * 自建字段是否禁用菜单由 useCellMenu 基于当前 cell 对应 measure 决定。
  *
  * UI 用此函数控制 toolbar"明细"按钮 / 单元格右键"查看明细"项的 disabled 状态。
  */
 export function canViewDetail(viewConfig: ViewConfig): boolean {
-  return viewConfig.customFields.length === 0;
+  void viewConfig;
+  return true;
 }

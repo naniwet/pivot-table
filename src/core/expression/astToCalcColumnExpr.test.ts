@@ -4,7 +4,6 @@
  * 翻译规则:
  *   - [field name] → resolveColumnName 解析后的物理列名(`[col]` 形态)
  *   - num / +-* / 一元负 / 括号 — 同 astToMdx 的算术处理
- *   - **agg(SUM/AVG/...) → throw**(行级 CalcColumn 不支持聚合)
  *   - **resolveColumnName 返回 null/undefined → throw**(找不到对应物理列)
  *
  * 跟 astToMdx 的 sibling 镜像;后端 schema 由 probe-calc-column.ts 实测确认 `[col]` 形态可用。
@@ -47,6 +46,31 @@ describe('astToCalcColumnExpr', () => {
     expect(astToCalcColumnExpr(ast, identity)).toBe('-[X]');
   });
 
+  it('字符串函数:SUBSTRING / LEFT / RIGHT / LENGTH / TRIM', () => {
+    expect(astToCalcColumnExpr(parseExpression('SUBSTRING([名称], 1, 3)'), identity)).toBe(
+      'SUBSTRING([名称], 1, 3)',
+    );
+    expect(astToCalcColumnExpr(parseExpression('LEFT([名称], 2)'), identity)).toBe(
+      'LEFT([名称], 2)',
+    );
+    expect(astToCalcColumnExpr(parseExpression('RIGHT([名称], 2)'), identity)).toBe(
+      'RIGHT([名称], 2)',
+    );
+    expect(astToCalcColumnExpr(parseExpression('LENGTH([名称])'), identity)).toBe(
+      'LENGTH([名称])',
+    );
+    expect(astToCalcColumnExpr(parseExpression('TRIM([名称])'), identity)).toBe(
+      'TRIM([名称])',
+    );
+  });
+
+  it('字符串函数里的字段引用也走 resolver', () => {
+    const ast = parseExpression('LEFT([产品名称], 2)');
+    expect(astToCalcColumnExpr(ast, (n) => (n === '产品名称' ? 'product_name' : null))).toBe(
+      'LEFT([product_name], 2)',
+    );
+  });
+
   it('resolver 把 measure name 翻译成 column name', () => {
     // 模拟 customElements 的真实路径:resolver 用 metadata 把 [m_name] → [field_name]
     const resolver = (n: string) => {
@@ -78,23 +102,7 @@ describe('astToCalcColumnExpr', () => {
     expect(() => astToCalcColumnExpr(ast, resolver)).toThrow(/B.*找不到/);
   });
 
-  // ============================================================
-  // agg 节点 → 抛错(关键不变量:CalcColumn 是行级,不能套聚合)
-  // ============================================================
-  it('SUM([X]) → throw(行级表达式不支持聚合,要聚合用 calc_measure)', () => {
-    const ast = parseExpression('SUM([X])');
-    expect(() => astToCalcColumnExpr(ast, identity)).toThrow(/不支持聚合函数/);
-  });
-
-  it('AVG / MIN / MAX / COUNT 各自抛错', () => {
-    for (const fn of ['AVG', 'MIN', 'MAX', 'COUNT'] as const) {
-      const ast = parseExpression(`${fn}([X])`);
-      expect(() => astToCalcColumnExpr(ast, identity)).toThrow(/不支持聚合函数/);
-    }
-  });
-
-  it('agg 嵌在 binop 子树里也抛错(深度递归识别)', () => {
-    const ast = parseExpression('[A] + SUM([B])');
-    expect(() => astToCalcColumnExpr(ast, identity)).toThrow(/不支持聚合函数/);
+  it('SUM/AVG/COUNT/MAX/MIN 在 parser 层不再支持', () => {
+    expect(() => parseExpression('SUM([X])')).toThrow(/未知函数/);
   });
 });

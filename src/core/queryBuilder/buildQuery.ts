@@ -38,11 +38,16 @@ import { getMeasureFieldName, normalizeQuickCalcWire } from '../viewConfig/quick
 
 import { placeMeasureAxis } from './measureAxis.js';
 import { translateDimensionFilter } from './translators/dimensionFilter.js';
+import { translateCustomRelations } from './translators/customRelations.js';
 import { translateMeasureFilters } from './translators/measureFilter.js';
 import { buildPageSettings } from './translators/pageSettings.js';
 import { translateColumns, translateRows } from './translators/rows.js';
 import { translateSorts } from './translators/sorts.js';
 import { translateCustomElements } from './translators/stubs.js';
+import {
+  shouldGoCustomMeasure,
+  translateAggregatorOverrides,
+} from './translators/aggregatorOverrides.js';
 import { validateViewConfig } from './validators.js';
 
 /**
@@ -164,9 +169,17 @@ export function buildQuery(rawViewConfig: ViewConfig, metadata: Metadata, pageSt
     fields: [
       ...buildDimensionFields(viewConfig.rows, index),
       ...buildDimensionFields(viewConfig.columns, index),
+      // 发 MeasureField 的条件:
+      //   - 有 quickCalc(必须挂在 MeasureField.quickCalc 上)
+      //   - 有 aggregator 但 metadata 没物理 binding(走老 fallback,虽然后端不识别但好歹兼容旧测试)
+      // 走 CustomMeasure 的(shouldGoCustomMeasure → true)*不*发 MeasureField,
+      //   避免同 name 重复定义;customElements 已经定义了完整 measure schema
       ...viewConfig.values
-        // 任一 override 就发 MeasureField:quickCalc 或 aggregator(P3+)
-        .filter((v) => v.quickCalc != null || v.aggregator != null)
+        .filter((v) => {
+          if (v.quickCalc != null) return true; // quickCalc 走 MeasureField.quickCalc
+          if (v.aggregator != null) return !shouldGoCustomMeasure(v, index); // aggregator 优先走 customElement,无 binding 才 fallback
+          return false;
+        })
         .map((v): QueryField => {
           const f: QueryField = {
             _enum: 'MeasureField' as const,
@@ -197,6 +210,12 @@ export function buildQuery(rawViewConfig: ViewConfig, metadata: Metadata, pageSt
     columnSorts: translateSorts(viewConfig.columnSorts, measureNameToFieldName),
 
     pageSettings: buildPageSettings(pageState),
-    customElements: translateCustomElements(viewConfig.customFields, metadata),
+    customElements: [
+      ...translateCustomElements(viewConfig.customFields, metadata),
+      ...translateCustomRelations(viewConfig.customRelations, metadata),
+      // 2026-05-16:aggregator override 走 CustomMeasure(后端原生支持的"换聚合"路径)
+      // 互斥 — quickCalc 不在这里处理(那条路还在 MeasureField.quickCalc 上)
+      ...translateAggregatorOverrides(viewConfig.values, index),
+    ],
   };
 }

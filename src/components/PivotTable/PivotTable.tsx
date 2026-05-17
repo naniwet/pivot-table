@@ -25,7 +25,7 @@
  *   - CSV 下载在浏览器侧（Blob + URL.createObjectURL + 隐式 <a download>）
  *   - 嵌入宿主只需传 metadata + onQuery + 可选 defaultValue/value/onChange
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 
 import { renderModelToCsv } from '../../core/export/csvExport.js';
@@ -54,6 +54,7 @@ import type { ViewConfig } from '../../types/viewConfig.js';
 
 import { ContextMenu } from '../ContextMenu/ContextMenu.js';
 import { SettingsModal } from '../SettingsModal/SettingsModal.js';
+import { SettingsContent } from '../SettingsModal/SettingsContent.js';
 import { ErrorBoundary } from '../ErrorBoundary/ErrorBoundary.js';
 import { DropZones } from '../DropZones/DropZones.js';
 import { ConditionalFormatModal } from '../ConditionalFormatModal/ConditionalFormatModal.js';
@@ -66,6 +67,7 @@ import { FilterPanel } from '../FilterPanel/FilterPanel.js';
 import { Pagination } from '../Pagination/Pagination.js';
 import { DetailRenderer } from '../DetailRenderer/DetailRenderer.js';
 import { PivotRenderer } from '../PivotRenderer/PivotRenderer.js';
+import { RelationGraphPanel } from '../RelationGraphPanel/RelationGraphPanel.js';
 import { TreeRenderer } from '../TreeRenderer/TreeRenderer.js';
 import { ChartRenderer } from '../ChartRenderer/ChartRenderer.js';
 import { buildChartSeries } from '../../core/chart/buildChartSeries.js';
@@ -313,12 +315,15 @@ function PivotTableInner({
     enabled: treeModeUsable,
   });
 
-  // P2: "+ 新建字段" 编辑器开关 — null 表示未打开；'expr'/'enum'/'range' 三种类型
+  // P2: "+ 新建字段" 编辑器开关 — null 表示未打开;'expr'/'enum'/'range' 三种类型
+  // exprKind:expr 编辑器的初始 kind('calc_measure'/'calc_column')— 让"+ 计算度量"
+  // 和"+ 计算列"两个入口预设不同 kind,用户不用进 modal 再切类别
   const [editorOpen, setEditorOpen] = useState<null | {
     kind: 'expr' | 'enum' | 'range';
     initialField?: CustomField;
     baseField?: string;
     baseFieldAlias?: string;
+    exprKind?: 'calc_measure' | 'calc_column';
   }>(null);
 
   // P3: 分组/范围 编辑器要先选 base field — picker 状态(null = 未打开)
@@ -329,8 +334,30 @@ function PivotTableInner({
   // base field picker 内的搜索框 — 按 alias / name 子串过滤
   const [baseFieldSearch, setBaseFieldSearch] = useState('');
 
-  // P3 设置面板:点 toolbar "⚙ 设置" 按钮打开
+  // P3 设置面板:点 toolbar "⚙ 设置" 按钮打开(modal 路径,保留供宿主)
   const [settingsOpen, setSettingsOpen] = useState(false);
+
+  // 2026-05-16 字段面板内 Tab — 'fields'(4 个 dropzone)/ 'options'(显示设置)
+  // 2026-05-17 P6:加 'relations'(查询级关系图覆盖)
+  // localStorage 持久化(UI 偏好,不进 viewConfig)— 跟 panelVisibility 同模式
+  const SETTINGS_TAB_LS_KEY = 'pivot-table-settings-tab';
+  const [settingsTab, setSettingsTab] = useState<'fields' | 'relations' | 'options'>(() => {
+    if (typeof window === 'undefined') return 'fields';
+    try {
+      const raw = localStorage.getItem(SETTINGS_TAB_LS_KEY);
+      return raw === 'options' || raw === 'relations' ? raw : 'fields';
+    } catch {
+      return 'fields';
+    }
+  });
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      localStorage.setItem(SETTINGS_TAB_LS_KEY, settingsTab);
+    } catch {
+      /* ignore quota errors */
+    }
+  }, [settingsTab]);
 
   // P5+ 三面板可见性 — 工具栏 / 字段面板(中间设置列) / 字段树(右侧数据列)
   // 默认全可见;用户在 panel header 点 × 或 settings 里切换 checkbox 可独立收起
@@ -574,6 +601,30 @@ function PivotTableInner({
     dispatch({ type: 'REMOVE_CUSTOM_FIELD', id });
   };
 
+  // 2026-05-16:编辑已有自建字段 — 按 kind 路由到对应 editor,带上 initialField
+  // 4 类自建字段:
+  //   calc_measure / calc_column → FieldExpressionEditor(kind='expr')
+  //   enum_group                 → EnumGroupEditor(kind='enum')+ baseField
+  //   range_group                → RangeGroupEditor(kind='range')+ baseField
+  //   dim_as_measure             → 没独立 editor(右键 FieldTree 创建时直接选 aggregator),
+  //                                  编辑入口暂不开放(用户体感:删了重建)
+  const handleEditCustomField = (cf: CustomField) => {
+    if (cf.kind === 'calc_measure' || cf.kind === 'calc_column') {
+      setEditorOpen({ kind: 'expr', initialField: cf });
+      return;
+    }
+    if (cf.kind === 'enum_group' || cf.kind === 'range_group') {
+      const alias = metaIndex.findByName(cf.baseField)?.alias ?? cf.baseField;
+      setEditorOpen({
+        kind: cf.kind === 'enum_group' ? 'enum' : 'range',
+        initialField: cf,
+        baseField: cf.baseField,
+        baseFieldAlias: alias,
+      });
+    }
+    // dim_as_measure 不支持编辑(没独立 editor);用户可删除重建
+  };
+
   // P2 自建字段:可用字段集合(度量 + 维度;给 editor / picker 用)
   // physicalColumns 是 metadata.fields[].name,calc_column 表达式校验用
   const { availableFields, dimensionFields, numericDimensionFields, physicalColumns } =
@@ -792,7 +843,7 @@ function PivotTableInner({
         </div>
       )}
 
-      {/* 浏览模式下右上角浮动"退出浏览" — 唯一可见的逃生口 */}
+      {/* 浏览模式下右上角浮动"退出浏览" — 唯一可见的逃生口,样式克制(半透明 pill) */}
       {browseMode && (
         <button
           type="button"
@@ -802,7 +853,8 @@ function PivotTableInner({
           aria-label="退出浏览模式"
           onClick={() => setBrowseMode(false)}
         >
-          ✕ 退出浏览
+          <span aria-hidden style={{ fontSize: 11, opacity: 0.8 }}>✕</span>
+          <span>退出</span>
         </button>
       )}
 
@@ -857,9 +909,15 @@ function PivotTableInner({
           onExportCsv={handleExportCsv}
           onExportExcel={handleExportExcel}
           exportingExcel={exportingExcel}
+          exportMaxRows={viewConfig.pageState.exportMaxRows ?? 10000}
+          onChangeExportMaxRows={(n) =>
+            dispatch({ type: 'SET_DISPLAY_OPTIONS', exportMaxRows: n })
+          }
           onEnterBrowseMode={() => setBrowseMode(true)}
           exportDisabled={!renderModel}
-          onOpenSettings={() => setSettingsOpen(true)}
+          // 2026-05-16:toolbar 设置按钮去掉(跟字段面板 Tab 重复)— 设置内容在右侧
+          // 面板"设置" tab 里。面板隐藏时通过 edge-handle 重新打开后切 tab 即可。
+          // SettingsModal 仍渲染(open=false),保留供宿主自行调用 setSettingsOpen 弹出。
           displayMode={
             // Toolbar 的 chart toggle 只识别 'table'/'chart';tree 模式当 'table' 显示
             // (用户在 tree 模式点 chart toggle → 切到 chart)
@@ -871,10 +929,6 @@ function PivotTableInner({
               displayMode:
                 viewConfig.pageState.displayMode === 'chart' ? 'table' : 'chart',
             })
-          }
-          chartType={viewConfig.pageState.chartType ?? 'bar'}
-          onChangeChartType={(type) =>
-            dispatch({ type: 'SET_DISPLAY_MODE', chartType: type })
           }
           queryMode={viewConfig.queryMode ?? 'pivot'}
           onToggleQueryMode={() =>
@@ -924,6 +978,7 @@ function PivotTableInner({
         ) : viewConfig.pageState.displayMode === 'chart' ? (
           // P3+ 图表模式:不渲染 PivotRenderer 表格,改用 ChartRenderer 撑满剩余空间
           // (.pivot-table__main 是 flex column,flex:1 + minHeight:0 让 chart 吃掉所有可用高度)
+          // chartType picker 放在图表本身的右上角,toolbar 不再混入此控件(2026-05-16)
           <ChartRenderer
             data={
               renderModel
@@ -936,6 +991,11 @@ function PivotTableInner({
             loading={loading}
             error={error}
             style={{ flex: 1, minHeight: 0 }}
+            chartTypePicker={{
+              current: viewConfig.pageState.chartType ?? 'bar',
+              onChange: (type) =>
+                dispatch({ type: 'SET_DISPLAY_MODE', chartType: type }),
+            }}
           />
         ) : treeModeUsable ? (
           // P5 树状模式:per-branch lazy query;走独立 pipeline 不复用 renderModel
@@ -1007,11 +1067,48 @@ function PivotTableInner({
             />
         )}
       </div>
-      {/* 设置面板:4 个 dropzone 垂直堆叠 — panelVisibility.fieldPanel=false 或浏览模式下不渲染 */}
+      {/* 设置面板:分 Tab —
+            "字段" tab: 4 个 dropzone(行轴/列轴/数值/筛选)
+            "设置" tab: 显示选项(冻结表头/翻页/空值文本等,inline SettingsContent)
+          2026-05-16 把原 toolbar 的"⚙ 设置" modal 合并进面板 Tab,避免两个入口冗余 */}
       {panelVisibility.fieldPanel && !browseMode && (
       <div className="pivot-table__settings">
-        <div className="pivot-table__panel-title">
-          <span>设置</span>
+        <div className="pivot-table__panel-title pivot-table__panel-title--tabs">
+          <div className="pivot-table__panel-tabs" role="tablist">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={settingsTab === 'fields'}
+              className="pivot-table__panel-tab"
+              data-active={settingsTab === 'fields' ? 'true' : 'false'}
+              data-testid="settings-tab-fields"
+              onClick={() => setSettingsTab('fields')}
+            >
+              字段
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={settingsTab === 'relations'}
+              className="pivot-table__panel-tab"
+              data-active={settingsTab === 'relations' ? 'true' : 'false'}
+              data-testid="settings-tab-relations"
+              onClick={() => setSettingsTab('relations')}
+            >
+              关系图
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={settingsTab === 'options'}
+              className="pivot-table__panel-tab"
+              data-active={settingsTab === 'options' ? 'true' : 'false'}
+              data-testid="settings-tab-options"
+              onClick={() => setSettingsTab('options')}
+            >
+              设置
+            </button>
+          </div>
           <button
             type="button"
             className="pivot-table__panel-close"
@@ -1023,16 +1120,34 @@ function PivotTableInner({
             ×
           </button>
         </div>
-        <DropZones
-          viewConfig={viewConfig}
-          metadata={metadata}
-          draggingFieldType={draggingFieldType}
-          onDrop={handleDrop}
-          onRemove={handleRemove}
-          onTagDragStart={(ft) => setDraggingFieldType(ft)}
-          onTagContextMenu={(e) => setTagMenu(e)}
-          onSwapRowsColumns={() => dispatch({ type: 'SWAP_ROWS_COLUMNS' })}
-        />
+        {settingsTab === 'fields' ? (
+          <DropZones
+            viewConfig={viewConfig}
+            metadata={metadata}
+            draggingFieldType={draggingFieldType}
+            onDrop={handleDrop}
+            onRemove={handleRemove}
+            onTagDragStart={(ft) => setDraggingFieldType(ft)}
+            onTagContextMenu={(e) => setTagMenu(e)}
+            onSwapRowsColumns={() => dispatch({ type: 'SWAP_ROWS_COLUMNS' })}
+          />
+        ) : settingsTab === 'relations' ? (
+          <RelationGraphPanel
+            metadata={metadata}
+            customRelations={viewConfig.customRelations ?? []}
+            onChange={(customRelations) =>
+              dispatch({ type: 'SET_CUSTOM_RELATIONS', customRelations })
+            }
+          />
+        ) : (
+          <SettingsContent
+            viewConfig={viewConfig}
+            dispatch={dispatch}
+            panelVisibility={panelVisibility}
+            onTogglePanel={(key, next) => togglePanel(key, next)}
+            isAdhoc={isAdhoc}
+          />
+        )}
       </div>
       )}
       {/* 数据面板:FieldTree 在最右 — panelVisibility.fieldTree=false 或浏览模式下不渲染 */}
@@ -1099,45 +1214,23 @@ function PivotTableInner({
           fieldUsage={fieldUsage}
           onFieldToggle={handleFieldToggle}
         />
-        {/* P2 我的字段区 — viewConfig.customFields 渲染 + 新建入口 */}
+        {/* P2 我的字段区 — viewConfig.customFields 渲染 + 新建入口
+            2026-05-16:4 个按钮合并成单一 `+ 新建 ▾` popover(避免窄面板里挤成两行) */}
         <div className="my-fields" data-testid="my-fields">
           <div className="my-fields__title">
             我的字段
-            <div className="my-fields__add-buttons">
-              <button
-                type="button"
-                className="my-fields__add-btn"
-                data-testid="my-fields-add-expr"
-                title="新建计算度量"
-                onClick={() => setEditorOpen({ kind: 'expr' })}
-              >
-                + 度量
-              </button>
-              <button
-                type="button"
-                className="my-fields__add-btn"
-                data-testid="my-fields-add-range"
-                title={
-                  numericDimensionFields.length === 0
-                    ? '范围分组需要数值类型的维度字段(行级 CASE WHEN);当前数据集无可用字段'
-                    : '新建范围分组(基于数值维度,生成 CASE WHEN 表达式)'
-                }
-                disabled={numericDimensionFields.length === 0}
-                onClick={() => setBaseFieldPicker({ kind: 'range' })}
-              >
-                + 范围
-              </button>
-              <button
-                type="button"
-                className="my-fields__add-btn"
-                data-testid="my-fields-add-enum"
-                title="新建枚举分组"
-                disabled={dimensionFields.length === 0}
-                onClick={() => setBaseFieldPicker({ kind: 'enum' })}
-              >
-                + 分组
-              </button>
-            </div>
+            <AddFieldButton
+              numericDimensionAvailable={numericDimensionFields.length > 0}
+              dimensionAvailable={dimensionFields.length > 0}
+              onPickCalcMeasure={() =>
+                setEditorOpen({ kind: 'expr', exprKind: 'calc_measure' })
+              }
+              onPickCalcColumn={() =>
+                setEditorOpen({ kind: 'expr', exprKind: 'calc_column' })
+              }
+              onPickRange={() => setBaseFieldPicker({ kind: 'range' })}
+              onPickEnum={() => setBaseFieldPicker({ kind: 'enum' })}
+            />
           </div>
           {viewConfig.customFields.length === 0 ? (
             <div className="my-fields__empty">还没有自建字段</div>
@@ -1231,13 +1324,33 @@ function PivotTableInner({
                             : '∑'/* dim_as_measure */}
                   </span>
                   <span className="my-fields__item-name">{cf.name}</span>
+                  {cf.kind !== 'dim_as_measure' && (
+                    <button
+                      type="button"
+                      className="my-fields__item-edit"
+                      data-testid={`my-fields-edit-${cf.id}`}
+                      aria-label={`编辑 ${cf.name}`}
+                      title="编辑自建字段"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleEditCustomField(cf);
+                      }}
+                      onMouseDown={(e) => e.stopPropagation()}
+                    >
+                      ✎
+                    </button>
+                  )}
                   <button
                     type="button"
                     className="my-fields__item-remove"
                     data-testid={`my-fields-remove-${cf.id}`}
                     aria-label={`删除 ${cf.name}`}
                     title="删除自建字段(从所有区域同时移除)"
-                    onClick={() => handleRemoveCustomField(cf.id)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleRemoveCustomField(cf.id);
+                    }}
+                    onMouseDown={(e) => e.stopPropagation()}
                   >
                     ×
                   </button>
@@ -1544,6 +1657,9 @@ function PivotTableInner({
               ? editorOpen.initialField
               : undefined
           }
+          // 新建时,按"+ 计算度量"/"+ 计算列"入口预设初始 kind;
+          // 编辑已有字段时,editor 自己从 initialField.kind 推断,本 prop 被忽略
+          defaultKind={editorOpen.exprKind}
           onApply={(cf) => {
             if (editorOpen.initialField) {
               dispatch({ type: 'UPDATE_CUSTOM_FIELD', field: cf });
@@ -1602,6 +1718,145 @@ function PivotTableInner({
           contextChips={detailContext.chips}
           onClose={() => setDetailContext(null)}
         />
+      )}
+    </div>
+  );
+}
+
+/**
+ * AddFieldButton — "+ 新建 ▾" 单按钮 popover,4 个新建入口
+ *   - 计算度量 / 计算列(无 base field — 直接打开 expr editor)
+ *   - 范围 / 分组(需要先选 base field — 先弹 picker)
+ *
+ * 2026-05-16 替代原 4 个独立按钮(在窄面板里挤成两行,视觉拥挤)。
+ * 一个按钮 + 一份菜单,即使将来加新类型也只是 popover 多一行。
+ *
+ * disabled 逻辑:范围 / 分组需要相应字段存在;计算度量 / 计算列 总是可用。
+ */
+function AddFieldButton({
+  numericDimensionAvailable,
+  dimensionAvailable,
+  onPickCalcMeasure,
+  onPickCalcColumn,
+  onPickRange,
+  onPickEnum,
+}: {
+  numericDimensionAvailable: boolean;
+  dimensionAvailable: boolean;
+  onPickCalcMeasure: () => void;
+  onPickCalcColumn: () => void;
+  onPickRange: () => void;
+  onPickEnum: () => void;
+}): ReactNode {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  // popover 翻转方向 — 默认往下;打开时若按钮下方空间不足 → 改往上
+  // (这里在窄面板底部时常见,菜单 ~160px 高度容易被裁)
+  const [placement, setPlacement] = useState<'down' | 'up'>('down');
+  const MENU_APPROX_HEIGHT = 168; // 4 项 × 28px + padding + 边距
+
+  useEffect(() => {
+    if (!open) return;
+    // 打开时一次性测量:按钮底部到 viewport 底的距离
+    const rect = wrapRef.current?.getBoundingClientRect();
+    if (rect) {
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const spaceAbove = rect.top;
+      // 下方不够,且上方更宽敞 → 往上展开
+      if (spaceBelow < MENU_APPROX_HEIGHT && spaceAbove > spaceBelow) {
+        setPlacement('up');
+      } else {
+        setPlacement('down');
+      }
+    }
+    const onDown = (e: MouseEvent) => {
+      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  const item = (
+    key: string,
+    label: string,
+    title: string,
+    onPick: () => void,
+    disabled = false,
+    disabledTitle?: string,
+  ) => (
+    <button
+      key={key}
+      type="button"
+      role="menuitem"
+      className="my-fields__add-menu-item"
+      data-testid={`my-fields-add-${key}`}
+      disabled={disabled}
+      title={disabled ? (disabledTitle ?? title) : title}
+      onClick={() => {
+        if (disabled) return;
+        onPick();
+        setOpen(false);
+      }}
+    >
+      {label}
+    </button>
+  );
+
+  return (
+    <div ref={wrapRef} className="my-fields__add-wrap">
+      <button
+        type="button"
+        className="my-fields__add-btn"
+        data-testid="my-fields-add-trigger"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        title="新建自建字段"
+        onClick={() => setOpen((v) => !v)}
+      >
+        + 新建
+        <span className="my-fields__add-caret" aria-hidden>
+          ▾
+        </span>
+      </button>
+      {open && (
+        <div
+          className={
+            'my-fields__add-menu my-fields__add-menu--' + (placement === 'up' ? 'up' : 'down')
+          }
+          role="menu"
+          data-testid="my-fields-add-menu"
+        >
+          {item(
+            'calc-measure',
+            '计算度量',
+            'MDX 聚合后(作度量用)',
+            onPickCalcMeasure,
+          )}
+          {item('calc-column', '计算列', 'SQL 行级(作维度用)', onPickCalcColumn)}
+          {item(
+            'range',
+            '范围分组',
+            '基于数值维度,生成 CASE WHEN 表达式',
+            onPickRange,
+            !numericDimensionAvailable,
+            '当前数据集无可用数值维度字段',
+          )}
+          {item(
+            'enum',
+            '枚举分组',
+            '基于维度字段,把成员手动分组',
+            onPickEnum,
+            !dimensionAvailable,
+            '当前数据集无可用维度字段',
+          )}
+        </div>
       )}
     </div>
   );

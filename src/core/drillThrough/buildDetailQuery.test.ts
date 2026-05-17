@@ -286,6 +286,45 @@ describe('buildDetailQuery', () => {
     expect(q.rows).toEqual(['ShipProvince2', 'ShipRegion2', 'ProductCategory', MEASURE]);
   });
 
+  it('明细 rows 只保留原有字段,不带自定义维度字段', () => {
+    const vc = buildViewConfig({
+      rows: [
+        buildHierarchyRow({ fieldName: HIER, drillDepth: 1 }),
+        { fieldName: 'cc_unit_price', type: 'Dimension' },
+      ],
+      columns: [
+        buildDimensionRow({ fieldName: 'ProductCategory' }),
+        { fieldName: 'eg_region', type: 'EnumGroup' },
+      ],
+      values: [buildValueField({ measureName: MEASURE })],
+      customFields: [
+        {
+          id: 'cc_unit_price',
+          name: '均价',
+          kind: 'calc_column',
+          dataFormat: '0.00',
+          expression: '[销售额]/[数量]',
+          ast: null,
+        },
+        {
+          id: 'eg_region',
+          name: '自定义区域',
+          kind: 'enum_group',
+          baseField: 'ShipProvince2',
+          groups: [],
+          ungroupedHandling: 'show_individually',
+        },
+      ],
+    });
+    const q = buildDetailQuery({
+      viewConfig: vc,
+      metadata: orderModelMetadata,
+      rowMember: [],
+      colMember: [],
+    });
+    expect(q.rows).toEqual(['ShipProvince2', 'ProductCategory', MEASURE]);
+  });
+
   it('I6: pageSettings rowPageSize 默认 10000', () => {
     const vc = buildViewConfig({
       rows: [buildHierarchyRow({ fieldName: HIER, drillDepth: 1 })],
@@ -357,6 +396,83 @@ describe('buildDetailQuery — viewConfig.filters → dimensionFilter 联动', (
     expect(q.dimensionFilter?.filter._enum).toMatch(/^By/);
   });
 
+  it('viewConfig.filters 里的自定义字段不带到明细 dimensionFilter', () => {
+    const vc = buildViewConfig({
+      rows: [buildHierarchyRow({ fieldName: HIER, drillDepth: 1 })],
+      values: [buildValueField({ measureName: MEASURE })],
+      filters: [
+        {
+          kind: 'leaf',
+          field: 'eg_region',
+          operator: 'In',
+          value: ['华东'],
+        },
+        {
+          kind: 'leaf',
+          field: 'ProductCategory',
+          operator: 'In',
+          value: ['白色家电'],
+        },
+      ],
+      customFields: [
+        {
+          id: 'eg_region',
+          name: '自定义区域',
+          kind: 'enum_group',
+          baseField: 'ShipProvince2',
+          groups: [],
+          ungroupedHandling: 'show_individually',
+        },
+      ],
+    });
+    const q = buildDetailQuery({
+      viewConfig: vc,
+      metadata: orderModelMetadata,
+      rowMember: [],
+      colMember: [],
+    });
+    expect(q.dimensionFilter).toEqual({
+      filter: {
+        _enum: 'ByLevel',
+        level: 'ProductCategory',
+        operator: 'In',
+        value: ['白色家电'],
+      },
+    });
+  });
+
+  it('viewConfig.filters 只有自定义字段时 → dimensionFilter=null', () => {
+    const vc = buildViewConfig({
+      rows: [buildHierarchyRow({ fieldName: HIER, drillDepth: 1 })],
+      values: [buildValueField({ measureName: MEASURE })],
+      filters: [
+        {
+          kind: 'leaf',
+          field: 'cc_unit_price',
+          operator: 'GreaterThan',
+          value: 10,
+        },
+      ],
+      customFields: [
+        {
+          id: 'cc_unit_price',
+          name: '均价',
+          kind: 'calc_column',
+          dataFormat: '0.00',
+          expression: '[销售额]/[数量]',
+          ast: null,
+        },
+      ],
+    });
+    const q = buildDetailQuery({
+      viewConfig: vc,
+      metadata: orderModelMetadata,
+      rowMember: [],
+      colMember: [],
+    });
+    expect(q.dimensionFilter).toBeNull();
+  });
+
   it('viewConfig.filters 为空 → query.dimensionFilter=null', () => {
     const vc = buildViewConfig({
       rows: [buildHierarchyRow({ fieldName: HIER, drillDepth: 1 })],
@@ -403,6 +519,46 @@ describe('buildDetailQuery — viewConfig.filters → dimensionFilter 联动', (
     expect(q.dimensionFilter?.filter._enum).toMatch(/^By/);
   });
 
+  it('单元格右键场景:自定义字段 member 不进 cellFilters,原有字段 member 保留', () => {
+    const vc = buildViewConfig({
+      rows: [
+        buildHierarchyRow({ fieldName: HIER, drillDepth: 1 }),
+        { fieldName: 'cc_unit_price', type: 'Dimension' },
+      ],
+      values: [buildValueField({ measureName: MEASURE })],
+      customFields: [
+        {
+          id: 'cc_unit_price',
+          name: '均价',
+          kind: 'calc_column',
+          dataFormat: '0.00',
+          expression: '[销售额]/[数量]',
+          ast: null,
+        },
+      ],
+    });
+    const q = buildDetailQuery({
+      viewConfig: vc,
+      metadata: orderModelMetadata,
+      rowMember: [
+        makeMember({ uniqueName: ['江苏'], fieldName: 'ShipProvince2' }),
+        makeMember({
+          uniqueName: ['10-20'],
+          fieldName: 'cc_unit_price',
+          dimension: 'cc_unit_price',
+          level: 'cc_unit_price_level',
+        }),
+      ],
+      colMember: [],
+    });
+    expect(q.filters).toHaveLength(1);
+    expect(q.filters[0]).toMatchObject({
+      _enum: 'FieldFilter',
+      field: 'ShipProvince2',
+      filter: { _enum: 'ByValue', operator: 'Equals', value: '江苏' },
+    });
+  });
+
   it('measureFilters 始终为 [](DetailQuery 无聚合)', () => {
     const vc = buildViewConfig({
       rows: [buildHierarchyRow({ fieldName: HIER, drillDepth: 1 })],
@@ -434,10 +590,28 @@ describe('canViewDetail', () => {
     expect(canViewDetail(vc)).toBe(true);
   });
 
-  it('viewConfig 含 calc_measure 自建字段 → false(后端 DetailQuery 不支持 customElements)', () => {
+  it('viewConfig 含未使用的自建字段 → true(普通单元格仍可查看明细)', () => {
     const vc = buildViewConfig({
       rows: [buildHierarchyRow()],
       values: [buildValueField()],
+      customFields: [
+        {
+          id: 'cm_unused',
+          name: '利润率',
+          kind: 'calc_measure',
+          dataFormat: '0.00%',
+          expression: '[a]/[b]',
+          ast: null,
+        },
+      ],
+    });
+    expect(canViewDetail(vc)).toBe(true);
+  });
+
+  it('当前 values 用到 calc_measure 自建字段 → true(是否显示菜单交给 cell 级判断)', () => {
+    const vc = buildViewConfig({
+      rows: [buildHierarchyRow()],
+      values: [buildValueField({ measureName: 'cm_x' })],
       customFields: [
         {
           id: 'cm_x',
@@ -449,12 +623,12 @@ describe('canViewDetail', () => {
         },
       ],
     });
-    expect(canViewDetail(vc)).toBe(false);
+    expect(canViewDetail(vc)).toBe(true);
   });
 
-  it('viewConfig 含 enum_group / range_group 也不支持', () => {
+  it('当前 rows 用到 enum_group / range_group → true(普通度量 cell 仍可查看明细)', () => {
     const enumVc = buildViewConfig({
-      rows: [buildHierarchyRow()],
+      rows: [{ fieldName: 'eg_x', type: 'EnumGroup' }],
       values: [buildValueField()],
       customFields: [
         {
@@ -467,7 +641,7 @@ describe('canViewDetail', () => {
         },
       ],
     });
-    expect(canViewDetail(enumVc)).toBe(false);
+    expect(canViewDetail(enumVc)).toBe(true);
   });
 });
 

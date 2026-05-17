@@ -84,6 +84,22 @@ describe('valueDedupKey', () => {
     );
     expect(k1).not.toBe(k2);
   });
+
+  // 2026-05-16 回归:quickCalc 现在两种形态 — 字符串('GlobalPercent' 等简单 _enum
+  // 的实际 wire format)+ 对象(time intelligence)。dedup key 必须两种都识别,
+  // 否则 "销售额" 跟 "销售额(占总计%)" 会被错算成重复 → 渲染层警告 + buildQuery
+  // 把后者过滤掉 → 切快速计算后查询不发出。
+  it('quickCalc 字符串形态(简单 _enum)→ enum 进 key', () => {
+    expect(valueDedupKey(value('sales', null, 'GlobalPercent' as never))).toBe(
+      'sales||GlobalPercent',
+    );
+  });
+
+  it('同 measure 一个无 qc 一个字符串 qc → key 不同(防止 dedup 误杀)', () => {
+    const k1 = valueDedupKey(value('sales', null, null));
+    const k2 = valueDedupKey(value('sales', null, 'GlobalPercent' as never));
+    expect(k1).not.toBe(k2);
+  });
 });
 
 describe('findDuplicateValueIndices', () => {

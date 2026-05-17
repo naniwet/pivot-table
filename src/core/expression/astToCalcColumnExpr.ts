@@ -10,7 +10,7 @@
  *   - num             → 字面量
  *   - binop A op B    → 嵌套时加括号
  *   - unary -e        → -mdx(e)
- *   - **agg SUM/AVG/...  → 抛错**(行级 CalcColumn 无聚合上下文,有聚合应该用 mode='mdx')
+ *   - strfn           → SUBSTRING/LEFT/RIGHT/LENGTH/TRIM(...)
  *
  * 2026-05-07 probe(scripts/probe-calc-column.ts)实测验证:
  *   - 物理列名形态 `[销售成本]/[销售额]` 后端接受 ✓
@@ -58,9 +58,7 @@ function emit(
     }
     case 'unary':
       return `-${emit(node.expr, false, resolve)}`;
-    case 'agg':
-      throw new Error(
-        `calc_column 模式不支持聚合函数 ${node.fn}(行级表达式);要用聚合请改 mode='mdx'`,
-      );
+    case 'strfn':
+      return `${node.fn}(${node.args.map((arg) => emit(arg, false, resolve)).join(', ')})`;
   }
 }

@@ -171,6 +171,51 @@
       .pivot-table__panel-title-text {
         flex: 0 0 auto;
       }
+      /* Tab 版的 panel-title — 字段/设置切换;tabs 占满剩余空间,× 仍顶最右 */
+      .pivot-table__panel-title--tabs {
+        gap: 0;
+        text-transform: none;
+        letter-spacing: normal;
+        padding-bottom: 0;
+        border-bottom: 1px solid var(--gray-200);
+      }
+      .pivot-table__panel-tabs {
+        flex: 1;
+        display: inline-flex;
+        align-items: stretch;
+        gap: 0;
+      }
+      .pivot-table__panel-tab {
+        height: 28px;
+        padding: 0 12px;
+        border: none;
+        background: transparent;
+        cursor: pointer;
+        font-family: inherit;
+        font-size: var(--fs-sm);
+        font-weight: 500;
+        color: var(--gray-500);
+        position: relative;
+        margin-bottom: -1px; /* 跟父级 border-bottom 重叠,active 下划线对齐 */
+        transition: color var(--tr-fast);
+      }
+      .pivot-table__panel-tab:hover:not([data-active='true']) {
+        color: var(--gray-700);
+      }
+      .pivot-table__panel-tab[data-active='true'] {
+        color: var(--primary);
+        font-weight: 600;
+        border-bottom: 2px solid var(--primary);
+      }
+      .pivot-table__panel-tab:focus-visible {
+        outline: 2px solid var(--primary);
+        outline-offset: -2px;
+      }
+      /* tab 版面板下面 SettingsContent 不需要 modal 的 padding —
+         给 settings__body inline 版用稍小 padding */
+      .pivot-table__settings > .settings-modal__body {
+        padding: var(--space-2) 0;
+      }
       /* 中间动态插槽 — 撑满剩余空间,把 × 顶到最右 */
       .pivot-table__panel-title-slot {
         flex: 1;
@@ -327,29 +372,38 @@
         to   { opacity: 1; transform: translate(-50%, 0); }
       }
 
-      /* P5+ 浏览模式退出按钮 — 浮动右上角,极简但醒目 */
+      /* P5+ 浏览模式退出按钮 — 右上角浮动 pill,半透明深色低存在感
+         浏览态本就是沉浸视图,逃生口应该克制不抢注意力 */
       .pivot-table__browse-exit {
         position: absolute;
-        top: 8px;
-        right: 12px;
+        top: 10px;
+        right: 14px;
         z-index: 50;
         height: 28px;
-        padding: 0 12px;
-        border: 1px solid var(--gray-300);
-        background: rgba(255, 255, 255, 0.92);
-        backdrop-filter: blur(4px);
-        border-radius: var(--r-md);
+        padding: 0 12px 0 10px;
+        border: none;
+        background: rgba(15, 23, 42, 0.72);
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+        border-radius: 999px;
         cursor: pointer;
         font-family: inherit;
         font-size: var(--fs-sm);
-        color: var(--gray-700);
-        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
-        transition: all var(--tr-fast);
+        color: rgba(255, 255, 255, 0.92);
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        opacity: 0.55;
+        transition: opacity var(--tr-fast), background var(--tr-fast);
       }
       .pivot-table__browse-exit:hover {
-        background: #fff;
-        border-color: var(--primary);
-        color: var(--primary);
+        opacity: 1;
+        background: rgba(15, 23, 42, 0.88);
+      }
+      .pivot-table__browse-exit:focus-visible {
+        outline: 2px solid var(--primary);
+        outline-offset: 2px;
+        opacity: 1;
       }
       /* 浏览模式下 grid 行/列高度归零(类似 panel hidden) */
       .pivot-table[data-browse-mode='true'] {
@@ -524,21 +578,142 @@
       .my-fields__item[data-disabled='true'] .my-fields__item-remove {
         cursor: pointer;  /* 仍可删除 */
       }
-      .toolbar-chart-type {
-        height: 32px;
-        padding: 0 var(--space-2);
-        border: none;
-        border-radius: var(--r-md);
-        background: transparent;
-        font-size: var(--fs-md);
-        font-family: inherit;
-        color: var(--gray-700);
-        cursor: pointer;
-        outline: none;
-        transition: background var(--tr-fast);
+      /* 导出按钮(合并 CSV/Excel + 行数 input)— 主按钮 + popover */
+      .toolbar__export {
+        position: relative;
+        display: inline-flex;
       }
-      .toolbar-chart-type:hover { background: var(--gray-100); }
-      .toolbar-chart-type:focus { box-shadow: 0 0 0 3px var(--primary-bg); }
+      .toolbar__export-caret {
+        color: var(--gray-600);
+        margin-left: 5px;
+        flex-shrink: 0;
+      }
+      .toolbar-btn:hover:not(:disabled) .toolbar__export-caret {
+        color: var(--gray-800);
+      }
+      .toolbar__export-popover {
+        position: absolute;
+        top: calc(100% + 4px);
+        right: 0;
+        z-index: 100;
+        min-width: 220px;
+        background: white;
+        border: 1px solid var(--gray-200);
+        border-radius: var(--r-md);
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+        padding: var(--space-3);
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-2);
+      }
+      .toolbar__export-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .toolbar__export-type-btn {
+        flex: 1;
+        height: 28px;
+        padding: 0 8px;
+        border: 1px solid var(--gray-300);
+        background: white;
+        border-radius: var(--r-sm);
+        cursor: pointer;
+        font-family: inherit;
+        font-size: var(--fs-sm);
+        color: var(--gray-700);
+        transition: all var(--tr-fast);
+      }
+      .toolbar__export-type-btn:hover {
+        background: var(--gray-50);
+      }
+      .toolbar__export-type-btn[data-active='true'] {
+        background: var(--primary-bg);
+        border-color: var(--primary);
+        color: var(--primary);
+        font-weight: 600;
+      }
+      .toolbar__export-rows label {
+        flex: 0 0 auto;
+        font-size: var(--fs-sm);
+        color: var(--gray-600);
+      }
+      .toolbar__export-rows input {
+        flex: 1;
+        height: 28px;
+        padding: 0 8px;
+        border: 1px solid var(--gray-300);
+        border-radius: var(--r-sm);
+        font-family: inherit;
+        font-size: var(--fs-sm);
+      }
+      .toolbar__export-rows input:focus {
+        outline: 2px solid var(--primary);
+        outline-offset: -1px;
+      }
+      .toolbar__export-footer {
+        display: flex;
+        justify-content: flex-end;
+        margin-top: var(--space-1);
+      }
+      .toolbar__export-confirm {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        height: 30px;
+        padding: 0 14px;
+        border: none;
+        background: var(--primary);
+        color: white;
+        border-radius: var(--r-sm);
+        cursor: pointer;
+        font-family: inherit;
+        font-size: var(--fs-sm);
+        font-weight: 500;
+      }
+      .toolbar__export-confirm:hover:not([disabled]) {
+        background: var(--primary-hover);
+      }
+      .toolbar__export-confirm[disabled] {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
+      /* ChartRenderer 右上角 chartType picker(segmented control 风格)
+         独立于 toolbar — 切换 displayMode 时 toolbar layout 不变 */
+      .chart-renderer__type-picker {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        z-index: 5;
+        display: inline-flex;
+        gap: 2px;
+        padding: 2px;
+        background: var(--gray-100);
+        border-radius: var(--r-md);
+      }
+      .chart-renderer__type-btn {
+        min-width: 52px;
+        height: 26px;
+        padding: 0 10px;
+        border: none;
+        background: transparent;
+        border-radius: calc(var(--r-md) - 1px);
+        font-family: inherit;
+        font-size: var(--fs-sm);
+        color: var(--gray-600);
+        cursor: pointer;
+        transition: background var(--tr-fast), color var(--tr-fast);
+      }
+      .chart-renderer__type-btn:hover {
+        color: var(--gray-900);
+      }
+      .chart-renderer__type-btn[data-active='true'] {
+        background: white;
+        color: var(--gray-900);
+        font-weight: 600;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+      }
 
       /* toolbar-btn--primary 已删除(2026-05-10):刷新按钮去主蓝,主蓝色保留给真"提交"型动作
          (config 管理弹窗的"保存"按钮)。常规高频操作不应吃主蓝。 */
@@ -899,7 +1074,11 @@
         cursor: pointer;
         font-size: 12px;
         color: var(--gray-700, #374151);
-        max-width: 280px;
+        /* 撑满父 slot(数据面板顶部槽位)— 配合 label 的 flex:1 + min-width:0 实现内部省略号 */
+        width: 100%;
+        min-width: 0;
+        max-width: 100%;
+        box-sizing: border-box;
       }
       .model-picker-btn:hover:not([disabled]) {
         background: var(--gray-50, #f9fafb);
@@ -909,93 +1088,228 @@
         opacity: 0.5;
         cursor: not-allowed;
       }
+      .model-picker-btn__icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 16px;
+        height: 16px;
+        color: var(--primary, #4f46e5);
+        flex-shrink: 0;
+      }
+      .model-picker-btn[disabled] .model-picker-btn__icon {
+        color: var(--gray-500);
+      }
       .model-picker-btn__label {
+        flex: 1;
+        min-width: 0; /* flex item 默认 min-width:auto 会阻止收缩,这里必须 0 才能 ellipsis */
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
-        max-width: 240px;
       }
       .model-picker-btn__chevron {
         color: var(--gray-500, #6b7280);
         font-size: 10px;
+        flex-shrink: 0;
+      }
+
+      /* Spinner — 旋转动画(<SpinnerIcon /> 用) */
+      @keyframes model-picker-spin {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+      }
+      .model-picker-spinner {
+        animation: model-picker-spin 0.9s linear infinite;
       }
 
       /* ============================================================
-       * ModelPicker — 数据模型 picker modal
+       * ModelPicker — 数据模型 picker modal(视觉风格对齐右侧 FieldTree)
        * ============================================================ */
       .model-picker__overlay {
         position: fixed;
         inset: 0;
-        background: rgba(0, 0, 0, 0.45);
+        background: rgba(15, 23, 42, 0.4);
         display: flex;
         align-items: center;
         justify-content: center;
-        z-index: 1100; /* 在 config-modal(1000) 之上 */
+        z-index: 1100;
+        backdrop-filter: blur(2px);
       }
       .model-picker__dialog {
         background: white;
-        border-radius: 8px;
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
-        width: 560px;
+        border-radius: var(--r-md);
+        box-shadow: 0 16px 48px rgba(15, 23, 42, 0.18);
+        width: 520px;
         max-width: calc(100vw - 32px);
-        max-height: 80vh;
+        max-height: 78vh;
         display: flex;
         flex-direction: column;
-        padding: var(--space-4);
+        padding: var(--space-4) var(--space-4) var(--space-3);
       }
       .model-picker__title {
-        margin: 0 0 var(--space-3) 0;
-        font-size: 16px;
+        margin: 0 0 var(--space-3);
+        font-size: var(--fs-md);
         font-weight: 600;
+        color: var(--gray-800);
       }
       .model-picker__error {
-        background: #fee;
-        color: #c33;
-        padding: var(--space-2);
-        border-radius: 4px;
+        background: #fef2f2;
+        color: #b91c1c;
+        padding: 8px 10px;
+        border-radius: var(--r-sm);
         margin-bottom: var(--space-2);
-        font-size: 12px;
+        font-size: var(--fs-xs);
+      }
+      /* 搜索条 — query 非空时 picker 切到 flat 结果列表 */
+      .model-picker__search {
+        position: relative;
+        margin-bottom: var(--space-2);
+      }
+      .model-picker__search-input {
+        width: 100%;
+        height: 30px;
+        box-sizing: border-box;
+        padding: 0 var(--space-3);
+        border: 1px solid var(--gray-200);
+        border-radius: var(--r-sm);
+        font-family: inherit;
+        font-size: var(--fs-md);
+        background: white;
+        outline: none;
+        transition: border-color var(--tr-fast);
+      }
+      .model-picker__search-input:focus {
+        border-color: var(--primary);
+      }
+      .model-picker__search-spinner {
+        position: absolute;
+        right: 10px;
+        top: 50%;
+        transform: translateY(-50%);
+        font-size: 14px;
+        color: var(--gray-400);
+        pointer-events: none;
+      }
+      /* 搜索结果单行 — leaf 可点,folder 灰显作"目录提示" */
+      .model-picker__node--disabled {
+        cursor: default;
+        opacity: 0.55;
+      }
+      .model-picker__node--disabled:hover {
+        background: transparent !important;
+        color: var(--gray-700) !important;
+        box-shadow: none !important;
+      }
+      .model-picker__search-row-text {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+        overflow: hidden;
+      }
+      .model-picker__search-row-path {
+        font-size: 11px;
+        color: var(--gray-500);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-family: var(--font-mono, ui-monospace, monospace);
+      }
+      .model-picker__node--selected .model-picker__search-row-path {
+        color: var(--primary);
+        opacity: 0.7;
       }
       .model-picker__tree {
         flex: 1;
         overflow-y: auto;
         border: 1px solid var(--gray-200);
-        border-radius: 4px;
-        padding: var(--space-1) 0;
-        min-height: 240px;
+        border-radius: var(--r-sm);
+        padding: var(--space-2) 4px;
+        min-height: 280px;
+        background: var(--gray-50);
       }
       .model-picker__loading,
       .model-picker__empty {
         padding: var(--space-3);
         color: var(--gray-500);
-        font-size: 12px;
+        font-size: var(--fs-xs);
+      }
+      .model-picker__empty--inline {
+        padding: 2px 0 2px 24px;
+      }
+      .model-picker__row {
+        margin: 1px 0;
       }
       .model-picker__node {
         display: flex;
         align-items: center;
-        gap: 6px;
-        padding: 4px 8px;
+        gap: 4px;
+        padding: 6px var(--space-2);
+        border-radius: var(--r-sm);
         cursor: pointer;
-        font-size: 13px;
+        font-size: var(--fs-md);
+        color: var(--gray-700);
         user-select: none;
+        transition: background var(--tr-fast), color var(--tr-fast),
+          box-shadow var(--tr-fast);
+      }
+      .model-picker__node--folder {
+        font-weight: 500;
+        color: var(--gray-800);
+      }
+      .model-picker__node--leaf {
+        cursor: pointer;
       }
       .model-picker__node:hover {
-        background: var(--gray-100, #f5f5f5);
+        background: var(--primary-bg);
+        color: var(--gray-900);
       }
-      .model-picker__node--selected {
-        background: var(--primary-light, #e0eaff);
+      .model-picker__node--leaf:hover {
+        box-shadow: inset 3px 0 0 var(--primary);
       }
+      .model-picker__node--selected,
       .model-picker__node--selected:hover {
-        background: var(--primary-light, #e0eaff);
+        background: var(--primary-bg-strong);
+        color: var(--primary);
+        font-weight: 600;
+        box-shadow: inset 3px 0 0 var(--primary);
       }
-      .model-picker__indicator {
-        width: 12px;
+      .model-picker__chevron {
+        width: 16px;
+        height: 16px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 11px;
         color: var(--gray-500);
-        font-size: 10px;
+        flex-shrink: 0;
+        line-height: 1;
+      }
+      .model-picker__chevron--folder {
+        cursor: pointer;
+      }
+      .model-picker__chevron--leaf {
+        /* 叶子无 chevron — 但占同样宽度对齐缩进层级 */
+        visibility: hidden;
       }
       .model-picker__icon {
         width: 16px;
-        text-align: center;
+        height: 16px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        margin-right: 2px;
+      }
+      .model-picker__icon--folder {
+        color: var(--orange, #f59e0b); /* 文件夹用暖橙,跟普通文件管理器视觉一致 */
+      }
+      .model-picker__icon--leaf {
+        color: var(--primary, #4f46e5); /* 数据模型用主蓝 */
+      }
+      .model-picker__node--selected .model-picker__icon--leaf {
+        color: var(--primary);
       }
       .model-picker__label {
         flex: 1;
@@ -1004,21 +1318,32 @@
         text-overflow: ellipsis;
         white-space: nowrap;
       }
-      .model-picker__id {
-        font-family: var(--font-mono, ui-monospace, monospace);
-        font-size: 10px;
-        color: var(--gray-500);
+      /* 子节点缩进 — 左侧细竖线(跟 FieldTree hierarchy 一致) */
+      .model-picker__children {
+        padding-left: var(--space-3);
+        border-left: 1px solid var(--gray-200);
+        margin-left: 12px;
       }
       .model-picker__selected {
         margin-top: var(--space-2);
-        padding: var(--space-2);
-        background: var(--gray-50, #fafafa);
-        border-radius: 4px;
-        font-size: 12px;
+        padding: 8px 10px;
+        background: var(--primary-bg);
+        border: 1px solid var(--primary-bg-strong);
+        border-radius: var(--r-sm);
+        font-size: var(--fs-xs);
+        color: var(--gray-700);
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-wrap: wrap;
+      }
+      .model-picker__selected strong {
+        color: var(--primary);
       }
       .model-picker__selected-path {
-        margin-left: var(--space-1);
         color: var(--gray-500);
+        font-family: var(--font-mono, ui-monospace, monospace);
+        font-size: 11px;
       }
       .model-picker__footer {
         display: flex;
@@ -1027,15 +1352,20 @@
         margin-top: var(--space-3);
       }
       .model-picker__btn {
-        padding: 6px 16px;
+        height: 30px;
+        padding: 0 14px;
         border: 1px solid var(--gray-300);
         background: white;
-        border-radius: 4px;
+        border-radius: var(--r-sm);
         cursor: pointer;
-        font-size: 13px;
+        font-family: inherit;
+        font-size: var(--fs-md);
+        color: var(--gray-700);
+        transition: background var(--tr-fast), border-color var(--tr-fast);
       }
       .model-picker__btn:hover:not([disabled]) {
-        background: var(--gray-50);
+        background: var(--gray-100);
+        color: var(--gray-900);
       }
       .model-picker__btn[disabled] {
         opacity: 0.5;
@@ -1049,6 +1379,7 @@
       .model-picker__btn--primary:hover:not([disabled]) {
         background: var(--primary-hover);
         border-color: var(--primary-hover);
+        color: white;
       }
 
       /* ============================================================
@@ -1119,7 +1450,12 @@
         outline: 1px solid var(--primary);
         outline-offset: 1px;
       }
-      .field-tree__folder-children { padding-left: 0; }
+      /* folder 子级 — 缩进显示父子关系(2026-05-16);加左竖线跟 hierarchy 一致 */
+      .field-tree__folder-children {
+        padding-left: var(--space-3);
+        border-left: 1px solid var(--gray-100);
+        margin-left: 8px;
+      }
       .field-tree__hierarchy { margin: 1px 0; }
       .field-tree__hierarchy > .field-tree__field-label {
         cursor: grab;
@@ -3025,6 +3361,13 @@
       }
       .expr-editor__status--ok { color: var(--green); }
       .expr-editor__status--idle { color: var(--gray-400); }
+      .expr-editor__status--warn {
+        color: #b45309; /* amber-700 */
+        background: #fef3c7; /* amber-100 */
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 12px;
+      }
       .expr-editor__mdx-preview { margin-top: var(--space-2); }
       .expr-editor__mdx-preview pre {
         background: var(--gray-50);
@@ -3139,7 +3482,14 @@
         position: relative;
       }
       .my-fields__add-buttons { display: flex; gap: var(--space-1); }
+      .my-fields__add-wrap {
+        position: relative;
+        display: inline-flex;
+      }
       .my-fields__add-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
         font-size: var(--fs-xs);
         height: 22px;
         padding: 0 var(--space-2);
@@ -3155,6 +3505,57 @@
         background: var(--primary-bg);
       }
       .my-fields__add-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+      .my-fields__add-caret {
+        font-size: 9px;
+        opacity: 0.7;
+      }
+      .my-fields__add-menu {
+        position: absolute;
+        right: 0;
+        z-index: 100;
+        min-width: 140px;
+        background: white;
+        border: 1px solid var(--gray-200);
+        border-radius: var(--r-md);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+        padding: 4px;
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+      }
+      /* 默认向下展开 */
+      .my-fields__add-menu--down {
+        top: calc(100% + 4px);
+      }
+      /* 下方空间不足 → 向上展开(JS 探测后切 placement) */
+      .my-fields__add-menu--up {
+        bottom: calc(100% + 4px);
+      }
+      .my-fields__add-menu-item {
+        display: flex;
+        align-items: center;
+        height: 28px;
+        padding: 0 10px;
+        border: none;
+        background: transparent;
+        font-family: inherit;
+        font-size: var(--fs-sm);
+        color: var(--gray-800);
+        cursor: pointer;
+        border-radius: var(--r-sm);
+        text-align: left;
+        text-transform: none;
+        letter-spacing: normal;
+        font-weight: normal;
+      }
+      .my-fields__add-menu-item:hover:not([disabled]) {
+        background: var(--primary-bg);
+        color: var(--primary);
+      }
+      .my-fields__add-menu-item[disabled] {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
       /* ============================================================
        * DetailModal (P3+ 明细数据)
        * ============================================================ */
@@ -3415,10 +3816,10 @@
         color: var(--gray-600);
         font-size: var(--fs-sm);
       }
-      .settings-modal__row--input select,
       .settings-modal__row--input input[type='text'],
       .settings-modal__row--input input[type='number'] {
         flex: 1 1 auto;
+        min-width: 0;
         height: 32px;
         box-sizing: border-box;
         padding: 0 var(--space-3);
@@ -3429,7 +3830,6 @@
         background: var(--gray-50);
         transition: border-color var(--tr-fast), box-shadow var(--tr-fast), background var(--tr-fast);
       }
-      .settings-modal__row--input select:focus,
       .settings-modal__row--input input[type='text']:focus,
       .settings-modal__row--input input[type='number']:focus {
         outline: none;
@@ -3437,8 +3837,107 @@
         background: #fff;
         box-shadow: 0 0 0 3px var(--primary-bg);
       }
+      .settings-modal__field-control {
+        flex: 1 1 auto;
+        min-width: 0;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .settings-modal__field-control--empty-value {
+        overflow: visible;
+      }
+      .settings-modal__select {
+        flex: 1 1 112px;
+        min-width: 92px;
+      }
       .settings-modal__inline-input {
-        max-width: 120px;
+        flex: 0 1 112px;
+        min-width: 72px;
+        max-width: 112px;
+      }
+      .select-menu {
+        position: relative;
+        min-width: 0;
+      }
+      .select-menu__trigger {
+        width: 100%;
+        height: 32px;
+        box-sizing: border-box;
+        display: inline-flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 6px;
+        padding: 0 9px 0 10px;
+        border: 1px solid var(--gray-200);
+        border-radius: var(--r-md);
+        background: var(--gray-50);
+        color: var(--gray-800);
+        font-size: var(--fs-sm);
+        font-family: inherit;
+        cursor: pointer;
+        transition: border-color var(--tr-fast), box-shadow var(--tr-fast), background var(--tr-fast);
+      }
+      .select-menu__trigger:hover,
+      .select-menu[data-open='true'] .select-menu__trigger {
+        background: #fff;
+        border-color: var(--primary);
+      }
+      .select-menu__trigger:focus-visible {
+        outline: none;
+        border-color: var(--primary);
+        background: #fff;
+        box-shadow: 0 0 0 3px var(--primary-bg);
+      }
+      .select-menu__value,
+      .select-menu__option-label {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .select-menu__chevron {
+        flex: 0 0 auto;
+        color: var(--gray-500);
+        font-size: 12px;
+      }
+      .select-menu__list {
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: calc(100% + 4px);
+        z-index: 50;
+        margin: 0;
+        padding: 4px;
+        list-style: none;
+        border: 1px solid var(--gray-200);
+        border-radius: var(--r-md);
+        background: #fff;
+        box-shadow: var(--shadow-lg);
+      }
+      .select-menu__option {
+        min-height: 28px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 0 8px;
+        border-radius: calc(var(--r-md) - 2px);
+        color: var(--gray-700);
+        font-size: var(--fs-sm);
+        cursor: pointer;
+      }
+      .select-menu__option:hover {
+        background: var(--gray-100);
+        color: var(--gray-900);
+      }
+      .select-menu__option[data-selected='true'] {
+        color: var(--primary);
+        font-weight: 600;
+      }
+      .select-menu__check {
+        width: 14px;
+        flex: 0 0 14px;
+        text-align: center;
       }
       /* 设置面板:模式切换按钮组 — pill 滑块风格(同 toolbar) */
       .settings-modal__btn-group {
@@ -3513,6 +4012,424 @@
         background: var(--gray-200);
         color: var(--gray-900);
         font-weight: 600;
+      }
+
+      /* P6 关系图面板: 窄栏入口 + 大尺寸 SVG 编辑器 */
+      .relation-panel {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-3);
+        padding: var(--space-2) 0 var(--space-4);
+        color: var(--gray-800);
+      }
+      .relation-panel__summary {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: var(--space-2);
+        padding: var(--space-3);
+        border: 1px solid var(--gray-200);
+        border-radius: var(--r-lg);
+        background: #fff;
+        box-shadow: var(--shadow-xs);
+      }
+      .relation-panel__summary-title {
+        font-size: var(--fs-md);
+        font-weight: 700;
+        color: var(--gray-900);
+      }
+      .relation-panel__summary-subtitle {
+        margin-top: 2px;
+        font-size: var(--fs-xs);
+        color: var(--gray-500);
+      }
+      .relation-panel__stats {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 3px;
+        flex: 0 0 auto;
+        font-size: var(--fs-xs);
+        color: var(--gray-500);
+      }
+      .relation-panel__stats span {
+        padding: 2px 6px;
+        border-radius: 999px;
+        background: var(--gray-100);
+        white-space: nowrap;
+      }
+      .relation-panel__badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 22px;
+        height: 20px;
+        padding: 0 7px;
+        border-radius: 999px;
+        background: var(--gray-100);
+        color: var(--gray-500);
+        font-size: var(--fs-xs);
+        font-weight: 600;
+      }
+      .relation-panel__badge--custom {
+        background: var(--primary-bg);
+        color: var(--primary);
+      }
+      .relation-panel__open {
+        height: 40px;
+        border: 1px solid var(--gray-200);
+        border-radius: var(--r-md);
+        background: #fff;
+        color: var(--primary);
+        font-family: inherit;
+        font-size: var(--fs-sm);
+        font-weight: 700;
+        box-shadow: var(--shadow-xs);
+        cursor: pointer;
+        transition: border-color var(--tr-fast), box-shadow var(--tr-fast), background var(--tr-fast);
+      }
+      .relation-panel__open:hover {
+        border-color: var(--primary-border);
+        background: var(--primary-bg);
+        box-shadow: var(--shadow-sm);
+      }
+      .relation-panel__mini-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        padding: var(--space-3);
+        border: 1px solid var(--gray-200);
+        border-radius: var(--r-lg);
+        background: #fff;
+        box-shadow: var(--shadow-xs);
+      }
+      .relation-panel__mini-title {
+        color: var(--gray-700);
+        font-size: var(--fs-sm);
+        font-weight: 700;
+      }
+      .relation-panel__mini-edge {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+        align-items: center;
+        gap: 6px;
+        min-height: 34px;
+        padding: 7px 8px;
+        border: 1px solid var(--gray-100);
+        border-radius: var(--r-md);
+        background: var(--gray-50);
+        color: var(--gray-700);
+        font-family: inherit;
+        font-size: var(--fs-xs);
+        cursor: pointer;
+      }
+      .relation-panel__mini-edge:hover {
+        border-color: var(--primary-border);
+        background: #fff;
+      }
+      .relation-panel__mini-edge[data-disabled='true'] {
+        opacity: 0.55;
+      }
+      .relation-panel__mini-edge span {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .relation-panel__empty {
+        display: flex;
+        align-items: center;
+        min-height: 44px;
+        color: var(--gray-400);
+        font-size: var(--fs-sm);
+      }
+      .relation-editor-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 70;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 28px;
+        background: rgba(15, 23, 42, 0.42);
+      }
+      .relation-editor {
+        width: min(1080px, 92vw);
+        height: min(720px, 86vh);
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        border: 1px solid rgba(148, 163, 184, 0.35);
+        border-radius: 12px;
+        background: #fff;
+        box-shadow: 0 24px 80px rgba(15, 23, 42, 0.22);
+      }
+      .relation-editor__header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--space-3);
+        min-height: 68px;
+        padding: 0 18px;
+        border-bottom: 1px solid var(--gray-200);
+        background: #fff;
+      }
+      .relation-editor__title {
+        color: var(--gray-900);
+        font-size: 16px;
+        font-weight: 800;
+      }
+      .relation-editor__subtitle {
+        margin-top: 3px;
+        color: var(--gray-500);
+        font-size: var(--fs-xs);
+      }
+      .relation-editor__toolbar,
+      .relation-editor__actions {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .relation-editor__body {
+        min-height: 0;
+        flex: 1;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 320px;
+      }
+      .relation-editor__canvas {
+        min-width: 0;
+        min-height: 0;
+        padding: 18px;
+        background: linear-gradient(180deg, #f8fafc 0%, #eef4fb 100%);
+      }
+      .relation-graph-svg {
+        width: 100%;
+        height: 100%;
+        display: block;
+      }
+      .relation-graph__backdrop {
+        fill: rgba(255, 255, 255, 0.68);
+        stroke: rgba(148, 163, 184, 0.26);
+      }
+      .relation-graph__node rect {
+        fill: #fff;
+        stroke: #cbd5e1;
+        stroke-width: 1.2;
+        filter: drop-shadow(0 6px 16px rgba(15, 23, 42, 0.1));
+      }
+      .relation-graph__node {
+        cursor: grab;
+      }
+      .relation-graph__node:active {
+        cursor: grabbing;
+      }
+      .relation-graph__node-title {
+        fill: #0f172a;
+        font-size: 14px;
+        font-weight: 800;
+      }
+      .relation-graph__node-meta {
+        fill: #64748b;
+        font-size: 11px;
+        font-weight: 600;
+      }
+      .relation-graph__edge-hit {
+        cursor: pointer;
+      }
+      .relation-graph__edge {
+        stroke-width: 2.2;
+        stroke-linecap: round;
+      }
+      .relation-graph__edge--base {
+        stroke: #94a3b8;
+      }
+      .relation-graph__edge--custom {
+        stroke: #2563eb;
+      }
+      .relation-graph__edge-hit[data-selected='true'] .relation-graph__edge {
+        stroke-width: 4;
+      }
+      .relation-graph__edge-hit[data-disabled='true'] .relation-graph__edge {
+        opacity: 0.45;
+        stroke-dasharray: 7 6;
+      }
+      .relation-graph__direction {
+        fill: none;
+        stroke: #64748b;
+        stroke-width: 1.4;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        opacity: 0.58;
+        pointer-events: none;
+      }
+      /* 2026-05-17:cardinality marker 改文字 "1" / "N" badge — 业务用户更直观 */
+      .relation-graph__cardinality-marker {
+        pointer-events: none;
+      }
+      .relation-graph__cardinality-bg {
+        fill: #fff;
+        stroke: #94a3b8;
+        stroke-width: 1.2;
+      }
+      .relation-graph__cardinality-label {
+        fill: #475569;
+        font-size: 11px;
+        font-weight: 700;
+        font-family:
+          -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+          'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+        user-select: none;
+      }
+      .relation-graph__edge-hit[data-selected='true'] .relation-graph__cardinality-bg {
+        stroke: #1d4ed8;
+        stroke-width: 1.6;
+      }
+      .relation-graph__edge-hit[data-selected='true'] .relation-graph__cardinality-label {
+        fill: #1d4ed8;
+      }
+      .relation-graph__edge-hit[data-disabled='true'] .relation-graph__cardinality-marker {
+        opacity: 0.5;
+      }
+      .relation-editor__side {
+        min-width: 0;
+        min-height: 0;
+        overflow: auto;
+        padding: 16px;
+        border-left: 1px solid var(--gray-200);
+        background: #fff;
+      }
+      .relation-editor__card,
+      .relation-editor__empty {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+      .relation-editor__card-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        color: var(--gray-900);
+        font-size: var(--fs-sm);
+        font-weight: 800;
+      }
+      .relation-editor__form {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        gap: 10px;
+      }
+      .relation-editor__field {
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+      }
+      .relation-editor__field-label {
+        color: var(--gray-500);
+        font-size: var(--fs-xs);
+        font-weight: 700;
+      }
+      .relation-editor__select .select-menu__trigger {
+        height: 34px;
+        background: #fff;
+      }
+      .relation-editor__toggle {
+        grid-column: 1 / -1;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--gray-700);
+        font-size: var(--fs-sm);
+        font-weight: 600;
+      }
+      .relation-editor__condition,
+      .relation-editor__fact {
+        padding: 10px 12px;
+        border: 1px solid var(--gray-200);
+        border-radius: var(--r-md);
+        background: var(--gray-50);
+        color: var(--gray-800);
+        font-size: var(--fs-sm);
+        font-weight: 700;
+      }
+      .relation-editor__fact {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+        align-items: center;
+        gap: 8px;
+      }
+      .relation-editor__fact span {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .relation-editor__fact strong {
+        color: var(--primary);
+        font-size: var(--fs-xs);
+      }
+      .relation-editor__muted,
+      .relation-editor__empty span {
+        color: var(--gray-500);
+        font-size: var(--fs-sm);
+      }
+      .relation-editor__primary,
+      .relation-editor__ghost,
+      .relation-editor__danger {
+        min-height: 34px;
+        padding: 0 12px;
+        border-radius: var(--r-md);
+        font-family: inherit;
+        font-size: var(--fs-sm);
+        font-weight: 700;
+        cursor: pointer;
+        transition: background var(--tr-fast), border-color var(--tr-fast), color var(--tr-fast), opacity var(--tr-fast);
+      }
+      .relation-editor__primary {
+        border: 1px solid var(--primary);
+        background: var(--primary);
+        color: #fff;
+      }
+      .relation-editor__primary:hover:not(:disabled) {
+        border-color: var(--primary-hover);
+        background: var(--primary-hover);
+      }
+      .relation-editor__primary:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+      .relation-editor__ghost {
+        border: 1px solid var(--gray-200);
+        background: #fff;
+        color: var(--gray-600);
+      }
+      .relation-editor__ghost:hover {
+        border-color: var(--primary-border);
+        color: var(--primary);
+      }
+      .relation-editor__danger {
+        border: 1px solid #fecaca;
+        background: #fff;
+        color: #b91c1c;
+      }
+      .relation-editor__danger:hover {
+        background: #fff1f2;
+      }
+
+      @media (max-width: 900px) {
+        .relation-editor {
+          width: 94vw;
+          height: 88vh;
+        }
+        .relation-editor__body {
+          grid-template-columns: 1fr;
+          grid-template-rows: minmax(300px, 1fr) auto;
+        }
+        .relation-editor__side {
+          max-height: 300px;
+          border-left: 0;
+          border-top: 1px solid var(--gray-200);
+        }
       }
 
       /* base field picker:modal 形式 — 点 + 范围/+ 分组 弹窗选字段 */
@@ -3752,14 +4669,19 @@
         background: var(--purple-bg);
         color: var(--purple);
       }
-      .my-fields__item-name { flex: 1; color: var(--gray-800); }
+      .my-fields__item-name { flex: 1; color: var(--gray-800); overflow: hidden; text-overflow: ellipsis; }
+      .my-fields__item-edit,
       .my-fields__item-remove {
         border: none;
         background: none;
         cursor: pointer;
         color: var(--gray-400);
         font-size: var(--fs-md);
+        padding: 0 4px;
+        line-height: 1;
+        flex-shrink: 0;
       }
+      .my-fields__item-edit:hover { color: var(--primary); }
       .my-fields__item-remove:hover { color: var(--red); }
     </style>
   </head>
