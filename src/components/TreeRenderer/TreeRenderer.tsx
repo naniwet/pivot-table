@@ -364,33 +364,20 @@ export function TreeRenderer({
                 {row.cells.map((cell, c) => {
                   // 列树折叠 → 隐藏 body cell
                   if (hiddenBodyCols.has(c)) return null;
-                  // placeholder col(collapsed parent 占位列)→ 显示子 cells 的 SUM 聚合
-                  // 2026-05-17:之前渲染空 cell,用户反馈"收起的时候怎么没数据"。
-                  //   现在客户端 sum 折叠范围 [c .. c+colSpan-1] 内所有数值 cells。
-                  //   默认走 SUM(BI 场景最常见);非数值 cells 跳过,全空则显示 emptyText。
-                  const ph = treeColResult?.placeholderBodyCols.get(c);
-                  if (ph) {
-                    let sum = 0;
-                    let hasValue = false;
-                    for (let j = c; j < c + ph.colSpan; j++) {
-                      const childCell = row.cells[j];
-                      if (childCell && !childCell.isEmpty && typeof childCell.value === 'number') {
-                        sum += childCell.value;
-                        hasValue = true;
-                      }
-                    }
-                    const placeholderDisplay = hasValue
-                      ? sum.toLocaleString('zh-CN', { maximumFractionDigits: 2 })
-                      : emptyText ?? '';
+                  // placeholder col(collapsed parent 占位列)
+                  // 2026-05-17:之前客户端 SUM hack 撤了 — 不通用(单价/AVG 等非可加 measure
+                  //   SUM 出来语义错)。等后端按 measure 实际 aggregator 返回父级聚合 cell
+                  //   再 wire 回来。当前显示 "—" 明示"折叠了,数据在子级里"。
+                  if (treeColResult?.placeholderBodyCols.has(c)) {
                     return (
                       <td
                         key={c}
                         className="pivot-cell pivot-cell--col-placeholder"
-                        data-empty={hasValue ? undefined : 'true'}
+                        data-empty="true"
                         data-col-placeholder="true"
-                        title={`折叠聚合(SUM,${ph.colSpan} 列)`}
+                        title="折叠 — 展开 ▶ 看子项数据"
                       >
-                        {placeholderDisplay}
+                        —
                       </td>
                     );
                   }
