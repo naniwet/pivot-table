@@ -42,7 +42,9 @@ describe('translateSorts', () => {
     ]);
   });
 
-  it('produces DimensionSort+ByCustomCaption for custom sort order', () => {
+  // 2026-05-17 backend probe 实测:ByCustomCaption 必须走 MeasureSortEx + Customize 才生效;
+  //   老 DimensionSort + sortBy:ByCustomCaption 后端会忽略 sortBy → 退化字典序
+  it('produces MeasureSortEx + Customize for custom sort order', () => {
     const sorts = [
       {
         type: 'ByCustomCaption' as const,
@@ -54,10 +56,13 @@ describe('translateSorts', () => {
     const result = translateSorts(sorts);
     expect(result).toEqual([
       {
-        _enum: 'DimensionSort',
-        dimension: 'ShipProvince',
+        _enum: 'MeasureSortEx',
+        measure: {
+          _enum: 'Customize',
+          sortField: 'ShipProvince',
+          customCaption: ['华南', '华北', '华东'],
+        },
         direction: 'ASC',
-        sortBy: { _enum: 'ByCustomCaption', customCaption: ['华南', '华北', '华东'] },
       },
     ]);
   });
@@ -73,12 +78,12 @@ describe('translateSorts', () => {
     ];
     const result = translateSorts(sorts);
     expect(result[0]).toMatchObject({
-      _enum: 'DimensionSort',
-      dimension: 'Region',
+      _enum: 'MeasureSortEx',
       direction: 'DESC',
     });
-    expect((result[0] as { sortBy: unknown }).sortBy).toEqual({
-      _enum: 'ByCustomCaption',
+    expect((result[0] as { measure: unknown }).measure).toEqual({
+      _enum: 'Customize',
+      sortField: 'Region',
       customCaption: ['华东', '华南'],
     });
   });

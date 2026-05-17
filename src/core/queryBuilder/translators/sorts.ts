@@ -29,12 +29,20 @@ export function translateSorts(
       };
     }
     if (s.type === 'ByCustomCaption') {
-      // P5+ 自定义排序 — 后端 DimensionSort + sortBy: ByCustomCaption(用户指定的成员顺序)
+      // P5+ 自定义排序 — 2026-05-17 backend probe 实测:
+      //   - 老 DimensionSort + sortBy:ByCustomCaption(schema 标 deprecated)→ 后端忽略 sortBy
+      //   - DimensionSortEx + sortBy:ByCustomCaption                       → 后端忽略 sortBy
+      //   - MeasureSortEx + measure:Customize                              → ✓ 真生效
+      // 虽然叫 MeasureSortEx,inner measure._enum='Customize' 指向 dim 字段 + customCaption,
+      // 这是 Smartbi 当前能用的"按用户指定的成员顺序排序"路径。
       return {
-        _enum: 'DimensionSort',
-        dimension: s.fieldName,
+        _enum: 'MeasureSortEx',
+        measure: {
+          _enum: 'Customize',
+          sortField: s.fieldName,
+          customCaption: s.customCaption,
+        },
         direction: s.direction,
-        sortBy: { _enum: 'ByCustomCaption', customCaption: s.customCaption },
       };
     }
     // ByDimension — P1.0 起：按维度成员字典序 ASC/DESC

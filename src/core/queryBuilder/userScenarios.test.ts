@@ -507,12 +507,15 @@ describe('用户业务场景:翻译正确性回归', () => {
       const q = buildQuery(vc, orderModelMetadata, defaultPageState);
       expect(q.rowSorts).toHaveLength(1);
       const sort = q.rowSorts[0]!;
-      expect(sort._enum).toBe('DimensionSort');
-      expect((sort as any).dimension).toBe(PROVINCE);
-      expect((sort as any).sortBy).toEqual({
-        _enum: 'ByCustomCaption',
+      // 2026-05-17 backend probe:ByCustomCaption 必须走 MeasureSortEx + Customize
+      //   (老 DimensionSort + sortBy 后端忽略 → 退化字典序;详见 translators/sorts.ts)
+      expect(sort._enum).toBe('MeasureSortEx');
+      expect((sort as { measure: unknown }).measure).toEqual({
+        _enum: 'Customize',
+        sortField: PROVINCE,
         customCaption: ['华南', '华北', '华东'],
       });
+      expect((sort as { direction: unknown }).direction).toBe('ASC');
     });
 
     // ─── G8: 条件格式(阈值规则)回归 ───
