@@ -44,6 +44,10 @@ describe('FieldExpressionEditor', () => {
     );
   });
 
+  // 2026-05-17 测试瘦身:SUM/AVG 等聚合函数 → "未知函数" 报错由 core
+  //   parseExpression.test.ts:154 用 for 循环覆盖了 5 个聚合函数,组件层不重复
+  //   data-valid + error 的渲染 wiring 由"语法错误 → invalid"(L36)已证
+
   it('合法表达式 → 状态显示 valid', () => {
     render(<FieldExpressionEditor onApply={vi.fn()} onClose={vi.fn()} />);
     fireEvent.change(screen.getByTestId('expr-editor-textarea'), {
@@ -65,7 +69,9 @@ describe('FieldExpressionEditor', () => {
     expect(onApply).not.toHaveBeenCalled();
   });
 
-  it('字段引用校验：[未知字段] 不在 metadata 列表里 → 错误提示', () => {
+  // 2026-05-16:"未知字段"降级 warning,不再 block save —— alias/name 不一致 +
+  // dataset 刚加字段没刷 metadata 等情况下,前端不阻挡,让后端最终判断
+  it('字段引用校验:[未知字段] 不在 metadata 列表里 → warning 提示,但不阻塞 apply', () => {
     render(
       <FieldExpressionEditor
         onApply={vi.fn()}
@@ -76,11 +82,13 @@ describe('FieldExpressionEditor', () => {
     fireEvent.change(screen.getByTestId('expr-editor-textarea'), {
       target: { value: '[销售额] - [不存在的字段]' },
     });
+    // 状态仍 valid(AST 解析成功),但有 warning
     expect(screen.getByTestId('expr-editor-status')).toHaveAttribute(
       'data-valid',
-      'false',
+      'true',
     );
-    expect(screen.getByTestId('expr-editor-error')).toHaveTextContent(/不存在的字段/);
+    expect(screen.getByTestId('expr-editor-warn')).toHaveTextContent(/不存在的字段/);
+    expect(screen.queryByTestId('expr-editor-error')).not.toBeInTheDocument();
   });
 
   it('availableFields 为空时 → 不做字段引用校验（向后兼容）', () => {
@@ -128,23 +136,23 @@ describe('FieldExpressionEditor', () => {
       expect(cf.id).toMatch(/^cc_/); // calc_column 用 cc 前缀
     });
 
-    it('calc_column 含聚合函数 SUM(...) → 错误提示 + 不可应用', async () => {
-      const onApply = vi.fn();
-      render(<FieldExpressionEditor onApply={onApply} onClose={vi.fn()} />);
-      fireEvent.click(screen.getByTestId('expr-editor-kind-column'));
-      fireEvent.change(screen.getByTestId('expr-editor-name'), {
-        target: { value: 'X' },
-      });
+    // 2026-05-17 测试瘦身:
+    //   - calc_column SUM → "未知函数" 由 core parseExpression.test.ts:154 覆盖;
+    //     apply 在 invalid 时不调的 wiring 由"未填字段名"(L70)已证(同 apply gate)
+    //   - SUBSTRING AST 形状由 core parseExpression.test.ts:84 直接断言;
+    //     "apply payload 含 ast + kind=calc_column" 由切换 kind toggle 用例(L126)覆盖
+    //   两条都是组件层重复 core 的 parser 行为
+
+    it('calc_measure 不支持字符串函数', () => {
+      render(<FieldExpressionEditor onApply={vi.fn()} onClose={vi.fn()} />);
       fireEvent.change(screen.getByTestId('expr-editor-textarea'), {
-        target: { value: 'SUM([销售额])' },
+        target: { value: 'LEFT([产品名称], 2)' },
       });
       expect(screen.getByTestId('expr-editor-status')).toHaveAttribute(
         'data-valid',
         'false',
       );
-      expect(screen.getByTestId('expr-editor-error')).toHaveTextContent(/聚合函数/);
-      await userEvent.click(screen.getByTestId('expr-editor-apply'));
-      expect(onApply).not.toHaveBeenCalled();
+      expect(screen.getByTestId('expr-editor-error')).toHaveTextContent(/字符串函数/);
     });
 
     it('calc_column 引用校验 → 用 availableColumns(不是 availableFields)', () => {
@@ -158,18 +166,19 @@ describe('FieldExpressionEditor', () => {
           availableColumns={['销售额', '数量']}
         />,
       );
-      // 切到计算列后,只接受物理列名
+      // 切到计算列后,只接受物理列名(2026-05-16:不在 availableColumns 改 warn 不 block)
       fireEvent.click(screen.getByTestId('expr-editor-kind-column'));
       fireEvent.change(screen.getByTestId('expr-editor-textarea'), {
         target: { value: '[销售额_m] / [数量_m]' }, // measure 名 → 不在 availableColumns
       });
+      // AST 解析成功 → data-valid='true';warn 提示而非 error
       expect(screen.getByTestId('expr-editor-status')).toHaveAttribute(
         'data-valid',
-        'false',
+        'true',
       );
-      expect(screen.getByTestId('expr-editor-error')).toHaveTextContent(/销售额_m/);
+      expect(screen.getByTestId('expr-editor-warn')).toHaveTextContent(/销售额_m/);
 
-      // 改成物理列名 → 通过
+      // 改成物理列名 → warn 消失
       fireEvent.change(screen.getByTestId('expr-editor-textarea'), {
         target: { value: '[销售额] / [数量]' },
       });
@@ -177,9 +186,10 @@ describe('FieldExpressionEditor', () => {
         'data-valid',
         'true',
       );
+      expect(screen.queryByTestId('expr-editor-warn')).not.toBeInTheDocument();
     });
 
-    it('编辑既有 calc_column → kind 锁定不能改(避免误改 schema 类别)', () => {
+    it('编辑既有 calc_column → kind row 不渲染(类别由 initialField 决定,标题显示"编辑计算列")', () => {
       render(
         <FieldExpressionEditor
           onApply={vi.fn()}
@@ -198,11 +208,11 @@ describe('FieldExpressionEditor', () => {
           }}
         />,
       );
-      // 进来就在 calc_column 模式
-      expect(screen.getByTestId('expr-editor-kind-column')).toBeChecked();
-      // kind 切换控件 disabled
-      expect(screen.getByTestId('expr-editor-kind-column')).toBeDisabled();
-      expect(screen.getByTestId('expr-editor-kind-measure')).toBeDisabled();
+      // 2026-05-16 重构:kind row 在"有 initialField 或 defaultKind"时不渲染
+      // (类别已经定了,不让用户在 modal 里再切)
+      expect(screen.queryByTestId('expr-editor-kind-row')).not.toBeInTheDocument();
+      // 标题显示"编辑计算列"证明 kind 是 calc_column
+      expect(screen.getByTestId('expr-editor').textContent).toContain('编辑计算列');
     });
 
     it('编辑既有 calc_column → onApply 输出 kind=calc_column(保留原 id)', async () => {

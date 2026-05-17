@@ -1,27 +1,22 @@
 /**
- * useMemberContextMenu — pivot 行/列头成员右键菜单 单测
+ * useMemberContextMenu — hook 集成 wiring 测试
  *
- * 重点:`addMemberToFilter` 的合并逻辑(避免重复 leaf)
- *   - 没现存同 field+op leaf → 新建
- *   - 有现存 → 把 member 追加到 value 数组
- *   - 已包含相同 member → 不重复
+ * 2026-05-17 测试瘦身:`addMemberToFilter` 的 6 条合并/去重/跨 op 不变量(I1-I6)
+ *   已下沉到 core `addMemberToFilter.test.ts`。hook 层只保留:
+ *   - menu items 结构(null / 正常),组件 API 形状契约
+ *   - 1 条 click → onChangeFilters wiring(证 hook 把 click 路由到 core fn)
  */
 import { renderHook } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 import { buildMetadataIndex } from '../core/metadata/fieldIndex.js';
 import { orderModelMetadata } from '../fixtures/metadata/orderModel.js';
-import type { ClientFilter } from '../types/viewConfig.js';
 
 import { useMemberContextMenu } from './useMemberContextMenu.js';
 
 const metaIndex = buildMetadataIndex(orderModelMetadata);
 
-function leaf(field: string, op: string, value: unknown): ClientFilter {
-  return { kind: 'leaf', field, operator: op, value } as ClientFilter;
-}
-
-describe('useMemberContextMenu — items', () => {
+describe('useMemberContextMenu — items 结构', () => {
   it('memberContextMenu=null → 空 items', () => {
     const { result } = renderHook(() =>
       useMemberContextMenu({
@@ -34,7 +29,7 @@ describe('useMemberContextMenu — items', () => {
     expect(result.current).toEqual([]);
   });
 
-  it('memberContextMenu 给 → 渲染 3 个 item:筛选 = / 排除 = / 复制(中间一个 separator)', () => {
+  it('memberContextMenu 给 → 3 个 item + 1 separator(筛选 / 排除 / 复制成员名)', () => {
     const { result } = renderHook(() =>
       useMemberContextMenu({
         memberContextMenu: { fieldName: 'ShipProvince2', memberName: '江苏', x: 0, y: 0 },
@@ -44,7 +39,7 @@ describe('useMemberContextMenu — items', () => {
       }),
     );
     const items = result.current;
-    expect(items).toHaveLength(4); // 3 menu items + 1 separator
+    expect(items).toHaveLength(4);
     expect(items[0]!.label).toContain('筛选');
     expect(items[0]!.label).toContain('江苏');
     expect(items[1]!.label).toContain('排除');
@@ -53,8 +48,8 @@ describe('useMemberContextMenu — items', () => {
   });
 });
 
-describe('useMemberContextMenu — In 合并行为', () => {
-  it('filters 空 → 点筛选 → 新建 In leaf,value=[memberName]', () => {
+describe('useMemberContextMenu — click → onChangeFilters wiring', () => {
+  it('点筛选 → onChangeFilters 被调一次,产出含 In leaf(具体合并/去重由 core 证)', () => {
     const onChangeFilters = vi.fn();
     const { result } = renderHook(() =>
       useMemberContextMenu({
@@ -64,117 +59,10 @@ describe('useMemberContextMenu — In 合并行为', () => {
         onChangeFilters,
       }),
     );
-    const inItem = result.current.find((i) => i.key === 'filter-in')!;
-    inItem.onClick!();
+    result.current.find((i) => i.key === 'filter-in')!.onClick!();
+    expect(onChangeFilters).toHaveBeenCalledTimes(1);
     expect(onChangeFilters).toHaveBeenCalledWith([
-      expect.objectContaining({
-        kind: 'leaf',
-        field: 'ShipProvince2',
-        operator: 'In',
-        value: ['江苏'],
-      }),
-    ]);
-  });
-
-  it('已有同 field + In leaf → 合并:把 member 追加到现有 value 数组', () => {
-    const onChangeFilters = vi.fn();
-    const existing: ClientFilter[] = [leaf('ShipProvince2', 'In', ['北京'])];
-    const { result } = renderHook(() =>
-      useMemberContextMenu({
-        memberContextMenu: { fieldName: 'ShipProvince2', memberName: '江苏', x: 0, y: 0 },
-        filters: existing,
-        metaIndex,
-        onChangeFilters,
-      }),
-    );
-    const inItem = result.current.find((i) => i.key === 'filter-in')!;
-    inItem.onClick!();
-    expect(onChangeFilters).toHaveBeenCalledWith([
-      expect.objectContaining({
-        kind: 'leaf',
-        field: 'ShipProvince2',
-        operator: 'In',
-        value: ['北京', '江苏'],
-      }),
-    ]);
-  });
-
-  it('已有同 field + In leaf 且已含此 member → 不重复', () => {
-    const onChangeFilters = vi.fn();
-    const existing: ClientFilter[] = [leaf('ShipProvince2', 'In', ['江苏', '北京'])];
-    const { result } = renderHook(() =>
-      useMemberContextMenu({
-        memberContextMenu: { fieldName: 'ShipProvince2', memberName: '江苏', x: 0, y: 0 },
-        filters: existing,
-        metaIndex,
-        onChangeFilters,
-      }),
-    );
-    const inItem = result.current.find((i) => i.key === 'filter-in')!;
-    inItem.onClick!();
-    expect(onChangeFilters).toHaveBeenCalledWith([
-      expect.objectContaining({
-        value: ['江苏', '北京'], // 没变
-      }),
-    ]);
-  });
-
-  it('已有同 field 但 op 是 Equals → 不合并,新建独立 In leaf', () => {
-    const onChangeFilters = vi.fn();
-    const existing: ClientFilter[] = [leaf('ShipProvince2', 'Equals', '北京')];
-    const { result } = renderHook(() =>
-      useMemberContextMenu({
-        memberContextMenu: { fieldName: 'ShipProvince2', memberName: '江苏', x: 0, y: 0 },
-        filters: existing,
-        metaIndex,
-        onChangeFilters,
-      }),
-    );
-    const inItem = result.current.find((i) => i.key === 'filter-in')!;
-    inItem.onClick!();
-    expect(onChangeFilters).toHaveBeenCalledWith([
-      // 原 Equals leaf 保留
-      expect.objectContaining({ operator: 'Equals', value: '北京' }),
-      // 新 In leaf
       expect.objectContaining({ operator: 'In', value: ['江苏'] }),
-    ]);
-  });
-});
-
-describe('useMemberContextMenu — NotIn 排除行为', () => {
-  it('点排除 → 新建 NotIn leaf', () => {
-    const onChangeFilters = vi.fn();
-    const { result } = renderHook(() =>
-      useMemberContextMenu({
-        memberContextMenu: { fieldName: 'ShipProvince2', memberName: '江苏', x: 0, y: 0 },
-        filters: [],
-        metaIndex,
-        onChangeFilters,
-      }),
-    );
-    const notInItem = result.current.find((i) => i.key === 'filter-not-in')!;
-    notInItem.onClick!();
-    expect(onChangeFilters).toHaveBeenCalledWith([
-      expect.objectContaining({ operator: 'NotIn', value: ['江苏'] }),
-    ]);
-  });
-
-  it('已有 In leaf 同 field → 排除新建独立 NotIn leaf(不影响 In)', () => {
-    const onChangeFilters = vi.fn();
-    const existing: ClientFilter[] = [leaf('ShipProvince2', 'In', ['北京'])];
-    const { result } = renderHook(() =>
-      useMemberContextMenu({
-        memberContextMenu: { fieldName: 'ShipProvince2', memberName: '江苏', x: 0, y: 0 },
-        filters: existing,
-        metaIndex,
-        onChangeFilters,
-      }),
-    );
-    const notInItem = result.current.find((i) => i.key === 'filter-not-in')!;
-    notInItem.onClick!();
-    expect(onChangeFilters).toHaveBeenCalledWith([
-      expect.objectContaining({ operator: 'In', value: ['北京'] }),
-      expect.objectContaining({ operator: 'NotIn', value: ['江苏'] }),
     ]);
   });
 });

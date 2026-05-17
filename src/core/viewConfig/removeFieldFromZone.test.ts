@@ -39,6 +39,46 @@ describe('removeFieldFromZone', () => {
     expect(after.values.map((v) => v.measureName)).toEqual(['m2']);
   });
 
+  // 2026-05-17:duplicate chip 精确删除 — value 区同 measure 多 chip
+  //   chipIdx 优先 + 防御性 fallback(下沉自 useViewConfig.test.ts L641/661/767/783)
+  describe('value zone chipIdx 精确删除', () => {
+    it('chipIdx=1 + 合法 → 只删 idx 1 chip,保留 idx 0', () => {
+      const before = buildViewConfig({
+        values: [
+          buildValueField({ measureName: 'm1' }),
+          buildValueField({ measureName: 'm1' }), // duplicate
+        ],
+      });
+      const after = removeFieldFromZone(before, 'value', 'm1', 1);
+      expect(after.values).toHaveLength(1);
+      expect(after.values[0]).toBe(before.values[0]); // 同引用,只删第 2 个
+    });
+
+    it('chipIdx 缺省 → 老语义按 encoded name 删全部同 chipKey(向后兼容)', () => {
+      const before = buildViewConfig({
+        values: [
+          buildValueField({ measureName: 'm1' }),
+          buildValueField({ measureName: 'm1' }),
+          buildValueField({ measureName: 'm2' }),
+        ],
+      });
+      const after = removeFieldFromZone(before, 'value', 'm1');
+      expect(after.values.map((v) => v.measureName)).toEqual(['m2']);
+    });
+
+    it('chipIdx 越界 / stale → fallback 老语义删全部同 name', () => {
+      const before = buildViewConfig({
+        values: [
+          buildValueField({ measureName: 'm1' }),
+          buildValueField({ measureName: 'm2' }),
+        ],
+      });
+      // chipIdx=1 但该位置是 m2,不是 m1 — stale,fallback 按 name 删
+      const after = removeFieldFromZone(before, 'value', 'm1', 1);
+      expect(after.values.map((v) => v.measureName)).toEqual(['m2']);
+    });
+  });
+
   it('is a no-op when fieldName not present', () => {
     const before = buildViewConfig({ rows: [buildHierarchyRow({ fieldName: 'h1' })] });
     const after = removeFieldFromZone(before, 'row', 'unknown');

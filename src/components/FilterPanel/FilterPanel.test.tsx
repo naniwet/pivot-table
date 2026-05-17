@@ -6,7 +6,7 @@
  *   - leaf renderLeaf 输出:filter-leaf-{op,val,field,pick}-{path}
  *   - 度量 leaf renderLeaf 输出:filter-measure-leaf-{op,val,min,max,field}-{path}
  */
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 import { PIVOT_FIELD_MIME } from '../../core/dropRules/dragProtocol.js';
@@ -103,37 +103,10 @@ describe('FilterPanel — 维度树 leaf 渲染 + 编辑', () => {
     ]);
   });
 
-  it('STRING 字段 op 下拉含 包含/开头是,不含 大于', () => {
-    const vc = buildViewConfig({
-      filters: [buildLeafFilter({ field: PROVINCE, operator: 'In', value: [] })],
-    });
-    render(
-      <FilterPanel viewConfig={vc} metadata={orderModelMetadata} onChangeFilters={vi.fn()} />,
-    );
-    const select = screen.getByTestId('filter-leaf-op-0');
-    const labels = within(select)
-      .getAllByRole('option')
-      .map((o) => o.textContent);
-    expect(labels).toContain('包含');
-    expect(labels).toContain('开头是');
-    expect(labels).not.toContain('大于');
-  });
-
-  it('DOUBLE 字段 op 下拉含 大于/小于,不含 开头是', () => {
-    const vc = buildViewConfig({
-      filters: [buildLeafFilter({ field: SALES, operator: 'GreaterThan', value: 1000 })],
-    });
-    render(
-      <FilterPanel viewConfig={vc} metadata={orderModelMetadata} onChangeFilters={vi.fn()} />,
-    );
-    const select = screen.getByTestId('filter-leaf-op-0');
-    const labels = within(select)
-      .getAllByRole('option')
-      .map((o) => o.textContent);
-    expect(labels).toContain('大于');
-    expect(labels).toContain('小于');
-    expect(labels).not.toContain('开头是');
-  });
+  // 2026-05-17:STRING/DOUBLE/Measure 各 valueType 对应的 operator 集合已在 core
+  //   operatorsForType.test.ts:25(STRING 8 个)/ :35(数值)/ :46(日期)/ :52(BOOLEAN)
+  //   完整覆盖。组件层只需信"<select> 把 operatorsForType 结果渲染成 <option>"的
+  //   通用 wiring — 不在每种 valueType 上重复断言下拉内容。
 
   it('数值 operator → input 类型 number,输入解析为 number', () => {
     const vc = buildViewConfig({
@@ -277,19 +250,8 @@ describe('FilterPanel — adhoc(明细)模式:Measure 当原始列过滤', () =>
     ]);
   });
 
-  it('pivot 模式 + 拖 Measure 到维度筛选 → 不接受(回归保护)', () => {
-    const onChange = vi.fn();
-    render(
-      <FilterPanel
-        viewConfig={buildViewConfig({})}
-        metadata={orderModelMetadata}
-        onChangeFilters={onChange}
-        onChangeMeasureFilters={vi.fn()}
-      />,
-    );
-    fireDropEvent(screen.getByTestId('filter-tree-dim'), SALES, 'Measure');
-    expect(onChange).not.toHaveBeenCalled();
-  });
+  // 2026-05-17:删除 — 与上方"拖度量字段进维度树 → 不接受"重复(同样的
+  //   pivot+Measure→dim 路径,两条都不带 queryMode 显式覆盖默认 pivot)
 });
 
 describe('FilterPanel — AND/OR 嵌套(group)', () => {
@@ -502,26 +464,7 @@ describe('FilterPanel — 度量 leaf', () => {
     });
   });
 
-  it('度量 op 下拉仅含数值/比较类(不含 In/Like)', () => {
-    const vc = buildViewConfig({
-      measureFilters: [buildMeasureFilter({ measureName: SALES })],
-    });
-    render(
-      <FilterPanel
-        viewConfig={vc}
-        metadata={orderModelMetadata}
-        onChangeFilters={vi.fn()}
-        onChangeMeasureFilters={vi.fn()}
-      />,
-    );
-    const select = screen.getByTestId('filter-measure-leaf-op-0');
-    const labels = within(select)
-      .getAllByRole('option')
-      .map((o) => o.textContent);
-    expect(labels).toContain('大于');
-    expect(labels).toContain('小于');
-    expect(labels).not.toContain('包含');
-  });
+  // 2026-05-17:度量 op 下拉内容已在 core operatorsForType.test.ts:35(数值类)覆盖
 });
 
 describe('FilterPanel — 跨度量 OR(度量树 group)', () => {

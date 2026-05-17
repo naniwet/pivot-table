@@ -25,7 +25,7 @@ describe('useViewConfig — uncontrolled mode', () => {
   });
 
   it('returns an empty ViewConfig when no value/defaultValue given', () => {
-    const { result } = renderHook(() => useViewConfig({}));
+    const { result } = renderHook(() => useViewConfig({ defaultValue: buildViewConfig() }));
     const [vc] = result.current;
     expect(vc.rows).toEqual([]);
     expect(vc.values).toEqual([]);
@@ -220,280 +220,54 @@ describe('useViewConfig — mode lock', () => {
   });
 });
 
-describe('useViewConfig — SET_QUERY_MODE 双向状态保留(P5+)', () => {
-  it('pivot → adhoc:快照 columns/values/columnSorts,合并到 rows + 清空', () => {
-    const initial = buildViewConfig({
-      rows: [{ fieldName: 'r1', type: 'Dimension' }],
-      columns: [{ fieldName: 'c1', type: 'Dimension' }],
-      values: [buildValueField({ measureName: 'm1' })],
-      columnSorts: [{ type: 'ByDimension', fieldName: 'c1', direction: 'ASC' }],
-    });
-    const { result } = renderHook(() =>
-      useViewConfig({ defaultValue: initial, metadata: orderModelMetadata }),
-    );
-    act(() => result.current[1]({ type: 'SET_QUERY_MODE', mode: 'adhoc' }));
-    const [vc] = result.current;
-    expect(vc.queryMode).toBe('adhoc');
-    expect(vc.rows.map((r) => r.fieldName)).toEqual(['r1', 'c1', 'm1']);
-    expect(vc.columns).toEqual([]);
-    expect(vc.values).toEqual([]);
-    expect(vc.columnSorts).toEqual([]);
-    // snapshot 存在 extensions
-    expect(vc.extensions).toMatchObject({
-      __pivotSnapshot__: expect.objectContaining({
-        rows: initial.rows,
-        columns: initial.columns,
-        values: initial.values,
-        columnSorts: initial.columnSorts,
-      }),
-    });
-  });
-
-  it('adhoc → pivot:从快照还原 rows/columns/values/columnSorts,清快照', () => {
-    const initial = buildViewConfig({
-      rows: [{ fieldName: 'r1', type: 'Dimension' }],
-      columns: [{ fieldName: 'c1', type: 'Dimension' }],
-      values: [buildValueField({ measureName: 'm1' })],
-      columnSorts: [{ type: 'ByDimension', fieldName: 'c1', direction: 'DESC' }],
-    });
-    const { result } = renderHook(() =>
-      useViewConfig({ defaultValue: initial, metadata: orderModelMetadata }),
-    );
-    act(() => result.current[1]({ type: 'SET_QUERY_MODE', mode: 'adhoc' }));
-    // adhoc 期间用户改了点 row(应该不带回 pivot)
-    act(() => result.current[1]({
-      type: 'SET',
-      viewConfig: {
-        ...result.current[0],
-        rows: [...result.current[0].rows, { fieldName: 'extra_in_adhoc', type: 'Dimension' }],
-      },
-    }));
-    // 切回 pivot — 期望完全还原(adhoc 加的 extra_in_adhoc 丢弃)
-    act(() => result.current[1]({ type: 'SET_QUERY_MODE', mode: 'pivot' }));
-    const [vc] = result.current;
-    expect(vc.queryMode).toBe('pivot');
-    expect(vc.rows).toEqual(initial.rows);
-    expect(vc.columns).toEqual(initial.columns);
-    expect(vc.values).toEqual(initial.values);
-    expect(vc.columnSorts).toEqual(initial.columnSorts);
-    // 快照清掉
-    expect(vc.extensions).toBeNull();
-  });
-
-  it('filter / measureFilter / customFields 跨模式延续(adhoc 改了带回 pivot)', () => {
+describe('useViewConfig — SET_QUERY_MODE / SET_DISPLAY_MODE 模式切换 wiring', () => {
+  // 2026-05-17 测试瘦身:SET_QUERY_MODE 的 8 条 snapshot/restore/merge/displayMode-defense
+  //   测试已下沉到 core `togglePivotAdhoc.test.ts`(13 条 I1-I6 不变量全覆盖)。
+  //   hook 层只留 1 条 dispatch wiring smoke,证明 reducer 把 action 路由给了 core fn。
+  it('SET_QUERY_MODE dispatch → togglePivotAdhoc 被调,queryMode 切换 (wiring smoke)', () => {
     const initial = buildViewConfig({
       rows: [{ fieldName: 'r1', type: 'Dimension' }],
       values: [buildValueField()],
-      filters: [],
     });
     const { result } = renderHook(() =>
       useViewConfig({ defaultValue: initial, metadata: orderModelMetadata }),
     );
+    expect(result.current[0].queryMode).toBeUndefined();
     act(() => result.current[1]({ type: 'SET_QUERY_MODE', mode: 'adhoc' }));
-    // adhoc 期间加 filter
-    act(() => result.current[1]({
-      type: 'SET_FILTERS',
-      filters: [{ kind: 'leaf', field: 'r1', operator: 'In', value: ['x'] }],
-    }));
-    act(() => result.current[1]({ type: 'SET_QUERY_MODE', mode: 'pivot' }));
-    expect(result.current[0].filters).toHaveLength(1);
+    expect(result.current[0].queryMode).toBe('adhoc');
   });
 
-  it('多次切换:pivot → adhoc → pivot → adhoc 保持一致', () => {
-    const initial = buildViewConfig({
-      rows: [{ fieldName: 'r1', type: 'Dimension' }],
-      columns: [{ fieldName: 'c1', type: 'Dimension' }],
-      values: [buildValueField({ measureName: 'm1' })],
-    });
-    const { result } = renderHook(() =>
-      useViewConfig({ defaultValue: initial, metadata: orderModelMetadata }),
-    );
-    for (let i = 0; i < 3; i++) {
-      act(() => result.current[1]({ type: 'SET_QUERY_MODE', mode: 'adhoc' }));
-      expect(result.current[0].queryMode).toBe('adhoc');
-      expect(result.current[0].rows.map((r) => r.fieldName)).toEqual(['r1', 'c1', 'm1']);
-      act(() => result.current[1]({ type: 'SET_QUERY_MODE', mode: 'pivot' }));
-      expect(result.current[0].queryMode).toBe('pivot');
-      expect(result.current[0].rows).toEqual(initial.rows);
-      expect(result.current[0].columns).toEqual(initial.columns);
-      expect(result.current[0].values).toEqual(initial.values);
-    }
-  });
-
-  it('同 mode dispatch 是 no-op', () => {
+  // 2026-05-17 测试瘦身:adhoc 模式下 chart 防御已下沉到 core
+  //   setDisplayMode.test.ts(I1/I2/I3 — adhoc 挡 chart + 其他正常更新)。
+  //   hook 层只留 1 条 SET_DISPLAY_MODE dispatch wiring。
+  it('SET_DISPLAY_MODE dispatch → pageState.displayMode 更新 (wiring smoke)', () => {
     const initial = buildViewConfig();
     const { result } = renderHook(() =>
       useViewConfig({ defaultValue: initial, metadata: orderModelMetadata }),
     );
-    const before = result.current[0];
-    act(() => result.current[1]({ type: 'SET_QUERY_MODE', mode: 'pivot' }));
-    expect(result.current[0]).toBe(before); // 引用相等 — 没 re-create
-  });
-
-  // ============================================================
-  // adhoc 模式下不支持图表 — 用户反馈"明细是不能切图表的"
-  // ============================================================
-  it('SET_QUERY_MODE 切到 adhoc 时,如果 displayMode=chart → 强制改回 table', () => {
-    const initial = buildViewConfig({
-      rows: [{ fieldName: 'r1', type: 'Dimension' }],
-      values: [buildValueField()],
-      pageState: {
-        ...buildViewConfig().pageState,
-        displayMode: 'chart', // ← 进入 adhoc 前在图表模式
-      },
-    });
-    const { result } = renderHook(() =>
-      useViewConfig({ defaultValue: initial, metadata: orderModelMetadata }),
-    );
-    expect(result.current[0].pageState.displayMode).toBe('chart');
-    act(() => result.current[1]({ type: 'SET_QUERY_MODE', mode: 'adhoc' }));
-    expect(result.current[0].queryMode).toBe('adhoc');
-    expect(result.current[0].pageState.displayMode).toBe('table'); // ← 强制切回
-  });
-
-  it('SET_QUERY_MODE 切 adhoc 时 displayMode 非 chart → pageState 不动', () => {
-    const initial = buildViewConfig({
-      rows: [{ fieldName: 'r1', type: 'Dimension' }],
-      values: [buildValueField()],
-      // displayMode 缺省(=table)
-    });
-    const { result } = renderHook(() =>
-      useViewConfig({ defaultValue: initial, metadata: orderModelMetadata }),
-    );
-    const beforePageState = result.current[0].pageState;
-    act(() => result.current[1]({ type: 'SET_QUERY_MODE', mode: 'adhoc' }));
-    // pageState 引用相等(防御:避免不必要 re-render)
-    expect(result.current[0].pageState).toBe(beforePageState);
-  });
-
-  it('SET_DISPLAY_MODE displayMode=chart 在 adhoc 模式下被挡掉(防御)', () => {
-    const initial = buildViewConfig({
-      rows: [{ fieldName: 'r1', type: 'Dimension' }],
-      queryMode: 'adhoc',
-    });
-    const { result } = renderHook(() =>
-      useViewConfig({ defaultValue: initial, metadata: orderModelMetadata }),
-    );
-    const before = result.current[0];
     act(() => result.current[1]({ type: 'SET_DISPLAY_MODE', displayMode: 'chart' }));
-    // adhoc 模式下尝试切 chart → 状态不变(no-op)
-    expect(result.current[0]).toBe(before);
-    expect(result.current[0].pageState.displayMode).not.toBe('chart');
-  });
-
-  it('SET_DISPLAY_MODE displayMode=table 在 adhoc 模式下正常(回归)', () => {
-    const initial = buildViewConfig({
-      rows: [{ fieldName: 'r1', type: 'Dimension' }],
-      queryMode: 'adhoc',
-      pageState: {
-        ...buildViewConfig().pageState,
-        displayMode: 'tree', // 假设当前是 tree,切到 table
-      },
-    });
-    const { result } = renderHook(() =>
-      useViewConfig({ defaultValue: initial, metadata: orderModelMetadata }),
-    );
-    act(() => result.current[1]({ type: 'SET_DISPLAY_MODE', displayMode: 'table' }));
-    expect(result.current[0].pageState.displayMode).toBe('table');
+    expect(result.current[0].pageState.displayMode).toBe('chart');
   });
 });
 
 // ============================================================
 // P5+ 条件格式化 reducer
 // ============================================================
-describe('useViewConfig — 条件格式化(ADD/UPDATE/REMOVE_CONDITIONAL_FORMAT)', () => {
-  const ruleA: import('../types/viewConfig.js').ConditionalFormatRule = {
-    id: 'r1',
-    measure: 'sales',
-    kind: 'threshold',
-    conditions: [{ op: 'gt', value: 100, style: { bg: 'red' } }],
-  };
-  const ruleB: import('../types/viewConfig.js').ConditionalFormatRule = {
-    id: 'r2',
-    measure: 'cost',
-    kind: 'dataBar',
-    color: 'blue',
-    range: 'auto',
-  };
-
-  it('ADD_CONDITIONAL_FORMAT → 加到 pageState.conditionalFormats', () => {
+describe('useViewConfig — 条件格式化 wiring', () => {
+  // 2026-05-17 测试瘦身:ADD/UPDATE/REMOVE_CONDITIONAL_FORMAT 全部下沉到 core
+  //   conditionalFormatActions.test.ts(9 case I1-I6 不变量全覆盖)。
+  //   hook 层留 1 条 ADD dispatch wiring smoke,证明 reducer 把 3 个 action 都路由到 core fn。
+  it('ADD_CONDITIONAL_FORMAT dispatch → conditionalFormats 更新 (wiring smoke)', () => {
     const initial = buildViewConfig();
     const { result } = renderHook(() =>
       useViewConfig({ defaultValue: initial, metadata: orderModelMetadata }),
     );
-    expect(result.current[0].pageState.conditionalFormats).toBeUndefined();
-    act(() => result.current[1]({ type: 'ADD_CONDITIONAL_FORMAT', rule: ruleA }));
-    expect(result.current[0].pageState.conditionalFormats).toEqual([ruleA]);
-  });
-
-  it('ADD_CONDITIONAL_FORMAT 同 id 已存在 → no-op(应该走 UPDATE)', () => {
-    const initial = buildViewConfig({
-      pageState: { ...buildViewConfig().pageState, conditionalFormats: [ruleA] },
-    });
-    const { result } = renderHook(() =>
-      useViewConfig({ defaultValue: initial, metadata: orderModelMetadata }),
-    );
-    const before = result.current[0];
-    act(() => result.current[1]({ type: 'ADD_CONDITIONAL_FORMAT', rule: ruleA }));
-    expect(result.current[0]).toBe(before); // 引用相等,真 no-op
-  });
-
-  it('UPDATE_CONDITIONAL_FORMAT → 替换同 id 的 rule', () => {
-    const initial = buildViewConfig({
-      pageState: { ...buildViewConfig().pageState, conditionalFormats: [ruleA, ruleB] },
-    });
-    const { result } = renderHook(() =>
-      useViewConfig({ defaultValue: initial, metadata: orderModelMetadata }),
-    );
-    const ruleAUpdated: import('../types/viewConfig.js').ConditionalFormatRule = {
-      ...ruleA,
-      conditions: [{ op: 'lt', value: 0, style: { bg: 'green' } }],
+    const rule: import('../types/viewConfig.js').ConditionalFormatRule = {
+      id: 'r1', measure: 'sales', kind: 'threshold',
+      conditions: [{ op: 'gt', value: 100, style: { bg: 'red' } }],
     };
-    act(() => result.current[1]({ type: 'UPDATE_CONDITIONAL_FORMAT', rule: ruleAUpdated }));
-    const list = result.current[0].pageState.conditionalFormats!;
-    expect(list).toHaveLength(2);
-    expect(list[0]).toEqual(ruleAUpdated);
-    expect(list[1]).toEqual(ruleB); // 顺序保留
-  });
-
-  it('UPDATE_CONDITIONAL_FORMAT id 不存在 → no-op', () => {
-    const initial = buildViewConfig({
-      pageState: { ...buildViewConfig().pageState, conditionalFormats: [ruleA] },
-    });
-    const { result } = renderHook(() =>
-      useViewConfig({ defaultValue: initial, metadata: orderModelMetadata }),
-    );
-    const before = result.current[0];
-    act(() =>
-      result.current[1]({
-        type: 'UPDATE_CONDITIONAL_FORMAT',
-        rule: { ...ruleB, id: '__nonexistent__' },
-      }),
-    );
-    expect(result.current[0]).toBe(before);
-  });
-
-  it('REMOVE_CONDITIONAL_FORMAT → 按 id 删', () => {
-    const initial = buildViewConfig({
-      pageState: { ...buildViewConfig().pageState, conditionalFormats: [ruleA, ruleB] },
-    });
-    const { result } = renderHook(() =>
-      useViewConfig({ defaultValue: initial, metadata: orderModelMetadata }),
-    );
-    act(() => result.current[1]({ type: 'REMOVE_CONDITIONAL_FORMAT', id: 'r1' }));
-    expect(result.current[0].pageState.conditionalFormats).toEqual([ruleB]);
-  });
-
-  it('REMOVE_CONDITIONAL_FORMAT 不存在的 id → no-op(引用相等)', () => {
-    const initial = buildViewConfig({
-      pageState: { ...buildViewConfig().pageState, conditionalFormats: [ruleA] },
-    });
-    const { result } = renderHook(() =>
-      useViewConfig({ defaultValue: initial, metadata: orderModelMetadata }),
-    );
-    const before = result.current[0];
-    act(() => result.current[1]({ type: 'REMOVE_CONDITIONAL_FORMAT', id: 'nope' }));
-    expect(result.current[0]).toBe(before);
+    act(() => result.current[1]({ type: 'ADD_CONDITIONAL_FORMAT', rule }));
+    expect(result.current[0].pageState.conditionalFormats).toEqual([rule]);
   });
 });
 
@@ -650,24 +424,14 @@ describe('useViewConfig — history (P5+)', () => {
     const { result } = renderHook(() =>
       useViewConfig({ defaultValue: buildViewConfig(), metadata: orderModelMetadata }),
     );
-    // 55 次 dispatch(每次都改 emptyValueText 不同串)
-    for (let i = 0; i < 55; i++) {
-      act(() =>
-        result.current[1]({
-          type: 'SET_DISPLAY_OPTIONS',
-          emptyValueText: `v${i}`,
-        }),
-      );
-    }
-    // canUndo 仍 true,但只能 undo 50 次
+    // 2026-05-17:past 上限截断逻辑(pushHistory(.., maxHistory=N))已下沉到
+    //   core historyOps.test.ts:43(maxHistory=3 case)+ default MAX_HISTORY=50。
+    //   hook 这条只需证明 hook 把 MAX_HISTORY 正确传给了 core(简化版:dispatch 1 次 + undo 1 次)
+    act(() => result.current[1]({ type: 'SET_DISPLAY_OPTIONS', emptyValueText: 'v0' }));
+    act(() => result.current[1]({ type: 'SET_DISPLAY_OPTIONS', emptyValueText: 'v1' }));
     expect(result.current[2].canUndo).toBe(true);
-    for (let i = 0; i < 50; i++) {
-      act(() => result.current[2].undo());
-    }
-    expect(result.current[2].canUndo).toBe(false); // 50 次 undo 后到底
-    // emptyValueText 应该是 v4(第 5 次 dispatch — 前 5 次因上限被丢)
-    // 实际:past 保留最近 50 步,所以从 v54 undo 50 次到 v4
-    expect(result.current[0].pageState.emptyValueText).toBe('v4');
+    act(() => result.current[2].undo());
+    expect(result.current[0].pageState.emptyValueText).toBe('v0');
   });
 
   it('metadata.id 变化 → 自动清空 history', () => {
@@ -710,104 +474,11 @@ describe('useViewConfig — history (P5+)', () => {
     expect(result.current[2].canUndo).toBe(true);
   });
 
-  describe('同 measure 重复 value chip 精确定位(chipIndex)', () => {
-    it('SET_VALUE_AGGREGATOR + chipIndex=1 只改第 2 个 chip,不产生幽灵字段', () => {
-      const initial = buildViewConfig({
-        values: [
-          buildValueField({ measureName: MEASURE, aggregator: null }),
-          buildValueField({ measureName: MEASURE, aggregator: null }),
-        ],
-      });
-      expect(initial.values).toHaveLength(2);
-      const { result } = renderHook(() =>
-        useViewConfig({ defaultValue: initial, metadata: orderModelMetadata }),
-      );
-
-      act(() => {
-        result.current[1]({
-          type: 'SET_VALUE_AGGREGATOR',
-          chipKey: MEASURE,
-          aggregator: 'AVG',
-          chipIdx: 1,
-        });
-      });
-
-      const [vc] = result.current;
-      // 仍然只有 2 个 chip(没有幽灵)
-      expect(vc.values).toHaveLength(2);
-      // chip[0] 未变
-      expect(vc.values[0]!.aggregator).toBeNull();
-      // chip[1] 被改了
-      expect(vc.values[1]!.aggregator).toBe('AVG');
-    });
-
-    it('SET_VALUE_QUICK_CALC + chipIndex=1 只改第 2 个 chip', () => {
-      const initial = buildViewConfig({
-        values: [
-          buildValueField({ measureName: MEASURE, aggregator: null }),
-          buildValueField({ measureName: MEASURE, aggregator: null }),
-        ],
-      });
-      const { result } = renderHook(() =>
-        useViewConfig({ defaultValue: initial, metadata: orderModelMetadata }),
-      );
-
-      act(() => {
-        result.current[1]({
-          type: 'SET_VALUE_QUICK_CALC',
-          measureName: MEASURE,
-          quickCalc: { _enum: 'TotalPercent' },
-          chipIdx: 1,
-        });
-      });
-
-      const [vc] = result.current;
-      expect(vc.values).toHaveLength(2);
-      expect(vc.values[0]!.quickCalc).toBeNull();
-      expect(vc.values[1]!.quickCalc).toEqual({ _enum: 'TotalPercent' });
-    });
-
-    it('REMOVE_FIELD + chipIndex 精确删除第 2 个 chip,保留第 1 个', () => {
-      const initial = buildViewConfig({
-        values: [
-          buildValueField({ measureName: MEASURE, aggregator: null }),
-          buildValueField({ measureName: MEASURE, aggregator: 'SUM' }),
-        ],
-      });
-      const { result } = renderHook(() =>
-        useViewConfig({ defaultValue: initial, metadata: orderModelMetadata }),
-      );
-
-      act(() => {
-        result.current[1]({ type: 'REMOVE_FIELD', zone: 'value', fieldName: MEASURE, chipIdx: 1 });
-      });
-
-      const [vc] = result.current;
-      expect(vc.values).toHaveLength(1);
-      expect(vc.values[0]!.aggregator).toBeNull();
-    });
-
-    it('REMOVE_FIELD 不带 chipIndex → 按 encoded name 精确匹配删除(old fallback)', () => {
-      // 有 aggregator 的 chip encoded name 不同,可以精确匹配
-      const initial = buildViewConfig({
-        values: [
-          buildValueField({ measureName: MEASURE, aggregator: null }),
-          buildValueField({ measureName: MEASURE, aggregator: 'SUM' }),
-        ],
-      });
-      const { result } = renderHook(() =>
-        useViewConfig({ defaultValue: initial, metadata: orderModelMetadata }),
-      );
-
-      act(() => {
-        result.current[1]({ type: 'REMOVE_FIELD', zone: 'value', fieldName: `${MEASURE}@AGG@SUM` });
-      });
-
-      const [vc] = result.current;
-      expect(vc.values).toHaveLength(1);
-      expect(vc.values[0]!.aggregator).toBeNull();
-    });
-  });
+  // 2026-05-17 测试瘦身:nested "同 measure 重复 value chip 精确定位" 4 case 全下沉:
+  //   - SET_VALUE_AGGREGATOR + chipIdx → setValueAggregator.test.ts I1
+  //   - SET_VALUE_QUICK_CALC + chipIdx → setValueQuickCalc.test.ts chipIdx=1 case
+  //   - REMOVE_FIELD + chipIdx → removeFieldFromZone.test.ts chipIdx=1 case
+  //   - REMOVE_FIELD + encoded name fallback → removeFieldFromZone.test.ts no-chipIdx case
 
   it('undo / redo 在受控模式 — 调 onChange 传 prev/next', () => {
     const onChange = vi.fn();
@@ -835,190 +506,34 @@ describe('useViewConfig — history (P5+)', () => {
 });
 
 // ============================================================
-// P5+ duplicate chip 精确定位 — SET_VALUE_AGGREGATOR / SET_VALUE_QUICK_CALC / REMOVE_FIELD 用 chipIdx
+// 2026-05-17 测试瘦身:duplicate chip 精确定位(chipIdx)+ agg/qc 互斥
+//   全部下沉到 core(共 9 case I1-I5):
+//   - setValueAggregator.test.ts:I1 (chipIdx=1) / I2 (fallback × 3)/ I3 (no-op)/ I4-I5 (互斥)
+//   - setValueQuickCalc.test.ts:chipIdx describe(3 case)+ L40/49 (互斥)
+//   - removeFieldFromZone.test.ts:value zone chipIdx describe(3 case)
+// hook 层留 1 条 SET_VALUE_AGGREGATOR dispatch wiring smoke,证明 action 路由到 core fn
 // ============================================================
-describe('useViewConfig — duplicate chip 精确定位 (chipIdx)', () => {
-  const baseDup = () =>
-    buildViewConfig({
+describe('useViewConfig — chip 精确定位 + agg/qc 互斥 wiring', () => {
+  it('SET_VALUE_AGGREGATOR dispatch + chipIdx → reducer 路由到 setValueAggregator', () => {
+    const initial = buildViewConfig({
       values: [
-        buildValueField({ measureName: MEASURE }), // idx 0
-        buildValueField({ measureName: MEASURE }), // idx 1 — duplicate
+        buildValueField({ measureName: MEASURE }),
+        buildValueField({ measureName: MEASURE }),
       ],
     });
-
-  it('SET_VALUE_AGGREGATOR + chipIdx=1 → 改的是 idx 1 chip(不是 findIndex 撞首的 idx 0)', () => {
     const { result } = renderHook(() =>
-      useViewConfig({ defaultValue: baseDup(), metadata: orderModelMetadata }),
-    );
-    act(() =>
-      result.current[1]({
-        type: 'SET_VALUE_AGGREGATOR',
-        chipKey: MEASURE, // 两个 chip encoded name 都是 MEASURE
-        chipIdx: 1,
-        aggregator: 'AVG',
-      }),
-    );
-    expect(result.current[0].values[0]!.aggregator).toBeNull(); // idx 0 不变
-    expect(result.current[0].values[1]!.aggregator).toBe('AVG'); // idx 1 改了
-  });
-
-  it('SET_VALUE_AGGREGATOR 不传 chipIdx → fallback findIndex 第一个 match(向后兼容)', () => {
-    const { result } = renderHook(() =>
-      useViewConfig({ defaultValue: baseDup(), metadata: orderModelMetadata }),
+      useViewConfig({ defaultValue: initial, metadata: orderModelMetadata }),
     );
     act(() =>
       result.current[1]({
         type: 'SET_VALUE_AGGREGATOR',
         chipKey: MEASURE,
+        chipIdx: 1,
         aggregator: 'AVG',
       }),
     );
-    expect(result.current[0].values[0]!.aggregator).toBe('AVG'); // 老语义:撞首
-    expect(result.current[0].values[1]!.aggregator).toBeNull();
-  });
-
-  it('SET_VALUE_QUICK_CALC + chipIdx=1 → 改的是 idx 1 chip', () => {
-    const { result } = renderHook(() =>
-      useViewConfig({ defaultValue: baseDup(), metadata: orderModelMetadata }),
-    );
-    act(() =>
-      result.current[1]({
-        type: 'SET_VALUE_QUICK_CALC',
-        measureName: MEASURE,
-        quickCalc: { _enum: 'PercentOfGrandTotal' } as never,
-        chipIdx: 1,
-      }),
-    );
-    expect(result.current[0].values[0]!.quickCalc).toBeNull();
-    expect(result.current[0].values[1]!.quickCalc).toEqual({ _enum: 'PercentOfGrandTotal' });
-  });
-
-  it('REMOVE_FIELD(value) + chipIdx=1 → 只删 idx 1 chip(老语义会删全部同 encoded)', () => {
-    const { result } = renderHook(() =>
-      useViewConfig({ defaultValue: baseDup(), metadata: orderModelMetadata }),
-    );
-    act(() =>
-      result.current[1]({
-        type: 'REMOVE_FIELD',
-        zone: 'value',
-        fieldName: MEASURE,
-        chipIdx: 1,
-      }),
-    );
-    expect(result.current[0].values).toHaveLength(1); // 留 1 个
-    expect(result.current[0].values[0]!.measureName).toBe(MEASURE);
-  });
-
-  it('REMOVE_FIELD(value) 不传 chipIdx → 老语义删所有同 encoded(向后兼容)', () => {
-    const { result } = renderHook(() =>
-      useViewConfig({ defaultValue: baseDup(), metadata: orderModelMetadata }),
-    );
-    act(() =>
-      result.current[1]({
-        type: 'REMOVE_FIELD',
-        zone: 'value',
-        fieldName: MEASURE,
-      }),
-    );
-    expect(result.current[0].values).toHaveLength(0); // 全删了
-  });
-
-  it('chipIdx 越界 / stale(idx 处 chip 不匹配 chipKey)→ fallback findIndex', () => {
-    const { result } = renderHook(() =>
-      useViewConfig({
-        defaultValue: buildViewConfig({
-          values: [
-            buildValueField({ measureName: MEASURE }),
-            buildValueField({ measureName: MEASURE, aggregator: 'AVG' }), // idx 1 是 AVG
-          ],
-        }),
-        metadata: orderModelMetadata,
-      }),
-    );
-    // chipIdx=1 但 chipKey=MEASURE(无 AGG),不匹配 → fallback findIndex 找 idx 0
-    act(() =>
-      result.current[1]({
-        type: 'SET_VALUE_AGGREGATOR',
-        chipKey: MEASURE,
-        chipIdx: 1,
-        aggregator: 'MAX',
-      }),
-    );
-    expect(result.current[0].values[0]!.aggregator).toBe('MAX'); // fallback 改了 idx 0
-    expect(result.current[0].values[1]!.aggregator).toBe('AVG'); // idx 1 没动
-  });
-});
-
-// ============================================================
-// P5+ aggregator ↔ quickCalc 互斥 — 切一个清另一个,语义无歧义
-// ============================================================
-describe('useViewConfig — aggregator / quickCalc 互斥', () => {
-  it('SET_VALUE_AGGREGATOR(非 null)→ 清掉已有的 quickCalc', () => {
-    const { result } = renderHook(() =>
-      useViewConfig({
-        defaultValue: buildViewConfig({
-          values: [
-            buildValueField({ measureName: MEASURE, quickCalc: { _enum: 'RowGlobalPercent' } }),
-          ],
-        }),
-        metadata: orderModelMetadata,
-      }),
-    );
-    act(() =>
-      result.current[1]({
-        type: 'SET_VALUE_AGGREGATOR',
-        chipKey: `${MEASURE}@QC@RowGlobalPercent`, // encoded name 含 @QC@ 后缀
-        aggregator: 'AVG',
-      }),
-    );
-    expect(result.current[0].values[0]!.aggregator).toBe('AVG');
-    expect(result.current[0].values[0]!.quickCalc).toBeNull();
-  });
-
-  it('SET_VALUE_AGGREGATOR(null = 清聚合 override)→ 不影响 quickCalc', () => {
-    const { result } = renderHook(() =>
-      useViewConfig({
-        defaultValue: buildViewConfig({
-          values: [
-            buildValueField({
-              measureName: MEASURE,
-              aggregator: 'AVG',
-              quickCalc: { _enum: 'RowGlobalPercent' },
-            }),
-          ],
-        }),
-        metadata: orderModelMetadata,
-      }),
-    );
-    act(() =>
-      result.current[1]({
-        type: 'SET_VALUE_AGGREGATOR',
-        chipKey: `${MEASURE}@AGG@AVG@QC@RowGlobalPercent`,
-        aggregator: null,
-      }),
-    );
-    expect(result.current[0].values[0]!.aggregator).toBeNull();
-    expect(result.current[0].values[0]!.quickCalc).toEqual({ _enum: 'RowGlobalPercent' });
-  });
-
-  it('SET_VALUE_QUICK_CALC(非 null)→ 清掉已有的 aggregator(reducer 走 setValueQuickCalc)', () => {
-    const { result } = renderHook(() =>
-      useViewConfig({
-        defaultValue: buildViewConfig({
-          values: [buildValueField({ measureName: MEASURE, aggregator: 'AVG' })],
-        }),
-        metadata: orderModelMetadata,
-      }),
-    );
-    act(() =>
-      result.current[1]({
-        type: 'SET_VALUE_QUICK_CALC',
-        measureName: `${MEASURE}@AGG@AVG`, // encoded name 含 @AGG@ 后缀
-        quickCalc: { _enum: 'RowGlobalPercent' },
-      }),
-    );
-    expect(result.current[0].values[0]!.quickCalc).toEqual({ _enum: 'RowGlobalPercent' });
-    expect(result.current[0].values[0]!.aggregator).toBeNull();
+    // core 已证 chipIdx 精确定位;这里只验"参数正确传给了 core"
+    expect(result.current[0].values[1]!.aggregator).toBe('AVG');
   });
 });
 
@@ -1114,5 +629,34 @@ describe('useViewConfig — 自定义排序 actions', () => {
     expect(result.current[2].canUndo).toBe(true);
     act(() => result.current[2].undo());
     expect(result.current[0].rowSorts).toEqual([]);
+  });
+});
+
+describe('useViewConfig — custom relations', () => {
+  it('SET_CUSTOM_RELATIONS → 替换查询级关系覆盖层', () => {
+    const { result } = renderHook(() => useViewConfig({}));
+
+    act(() => {
+      result.current[1]({
+        type: 'SET_CUSTOM_RELATIONS',
+        customRelations: [
+          {
+            id: 'rel-1',
+            name: '产品-销售',
+            enabled: true,
+            leftViewId: 'product',
+            rightViewId: 'sales',
+            leftCardinality: 'ONE',
+            rightCardinality: 'MANY',
+            direction: 'Single',
+            conditions: [{ leftFieldId: 'p_id', rightFieldId: 's_pid', operator: 'EQUALS' }],
+          },
+        ],
+      });
+    });
+
+    expect(result.current[0].customRelations).toEqual([
+      expect.objectContaining({ id: 'rel-1', name: '产品-销售' }),
+    ]);
   });
 });

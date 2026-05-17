@@ -60,4 +60,45 @@ describe('setValueQuickCalc', () => {
     expect(after.values[0]!.quickCalc).toBeNull();
     expect(after.values[0]!.aggregator).toBe('AVG');
   });
+
+  // 2026-05-17:duplicate chip(同 measureName 多 chip)精确定位 —
+  //   chipIdx 优先,fallback findIndex 第一个 match
+  describe('chipIdx 精确定位', () => {
+    it('chipIdx=1 + 合法 → 改的是 idx 1 chip', () => {
+      const before = buildViewConfig({
+        values: [
+          buildValueField({ measureName: 'm1' }),
+          buildValueField({ measureName: 'm1' }), // duplicate
+        ],
+      });
+      const after = setValueQuickCalc(before, 'm1', { _enum: 'TotalPercent' }, 1);
+      expect(after.values[0]!.quickCalc).toBeNull(); // idx 0 不动
+      expect(after.values[1]!.quickCalc).toEqual({ _enum: 'TotalPercent' });
+    });
+
+    it('chipIdx 缺省 → fallback findIndex 第一个(向后兼容)', () => {
+      const before = buildViewConfig({
+        values: [
+          buildValueField({ measureName: 'm1' }),
+          buildValueField({ measureName: 'm1' }),
+        ],
+      });
+      const after = setValueQuickCalc(before, 'm1', { _enum: 'TotalPercent' });
+      expect(after.values[0]!.quickCalc).toEqual({ _enum: 'TotalPercent' });
+      expect(after.values[1]!.quickCalc).toBeNull();
+    });
+
+    it('chipIdx 越界 / stale → fallback findIndex', () => {
+      const before = buildViewConfig({
+        values: [
+          buildValueField({ measureName: 'm1' }),
+          buildValueField({ measureName: 'm2' }),
+        ],
+      });
+      // chipIdx=1 但该位置是 m2,不是 m1 — stale,fallback 找 idx 0
+      const after = setValueQuickCalc(before, 'm1', { _enum: 'TotalPercent' }, 1);
+      expect(after.values[0]!.quickCalc).toEqual({ _enum: 'TotalPercent' });
+      expect(after.values[1]!.quickCalc).toBeNull();
+    });
+  });
 });

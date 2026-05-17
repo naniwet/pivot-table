@@ -23,18 +23,9 @@ import {
   type CSSProperties,
 } from 'react';
 
-export type ContextMenuItem =
-  | {
-      key: string;
-      label: string;
-      /** leaf 项:必传 onClick;父项(有 children)可省 */
-      onClick?: () => void;
-      /** 父项:鼠标 hover / 点击展开此子菜单(子项可继续带 children,递归任意深度) */
-      children?: ContextMenuItem[];
-      disabled?: boolean;
-      separator?: false;
-    }
-  | { key: string; separator: true; label?: undefined; onClick?: undefined; children?: undefined };
+// 2026-05-17:ContextMenuItem 类型迁到 core/menuBuilder/menuItem.ts,本文件 re-export 保兼容
+import type { ContextMenuItem } from '../../core/menuBuilder/menuItem.js';
+export type { ContextMenuItem };
 
 export interface ContextMenuProps {
   x: number;

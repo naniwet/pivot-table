@@ -28,40 +28,8 @@ const calcMeasureCf: CustomField = {
   ast: null,
 };
 
-const calcColumnCf: CustomField = {
-  id: 'cc1',
-  name: '均价',
-  kind: 'calc_column',
-  dataFormat: '#,##0.00',
-  expression: '[销售额]/[数量]',
-  ast: null,
-};
-
-const enumGroupCf: CustomField = {
-  id: 'eg1',
-  name: '区域分组',
-  kind: 'enum_group',
-  baseField: 'ShipProvince',
-  groups: [],
-  ungroupedHandling: 'show_individually',
-};
-
-const rangeGroupCf: CustomField = {
-  id: 'rg1',
-  name: '价格分段',
-  kind: 'range_group',
-  baseField: 'UnitPrice',
-  ranges: [],
-};
-
-const dimAsMeasureCf: CustomField = {
-  id: 'dam1',
-  name: '销售员(COUNT_DISTINCT)',
-  kind: 'dim_as_measure',
-  sourceField: '销售员',
-  aggregator: 'COUNT_DISTINCT',
-  dataFormat: '',
-};
+// 2026-05-17:calcColumnCf / enumGroupCf / rangeGroupCf / dimAsMeasureCf fixture 全下沉到
+//   core/customFields/deriveEditorOpen.test.ts;本文件只留 calc_measure 一例作 wiring
 
 describe('useCustomFieldEditor', () => {
   it('I1: 初始 state — editor/picker null, search 空串', () => {
@@ -118,63 +86,14 @@ describe('useCustomFieldEditor', () => {
     });
   });
 
-  // ============================================================
-  // I5: openExistingEditor 按 cf.kind 路由
-  // ============================================================
-  describe('I5: openExistingEditor 按 cf.kind 路由', () => {
-    it('calc_measure → expr editor', () => {
-      const { result } = renderHook(() => useCustomFieldEditor());
-      act(() => result.current.openExistingEditor(calcMeasureCf));
-      expect(result.current.editorOpen).toEqual({
-        kind: 'expr',
-        initialField: calcMeasureCf,
-      });
-    });
-
-    it('calc_column → expr editor(共享同一个 modal,内部按 kind 切表单)', () => {
-      const { result } = renderHook(() => useCustomFieldEditor());
-      act(() => result.current.openExistingEditor(calcColumnCf));
-      expect(result.current.editorOpen).toEqual({
-        kind: 'expr',
-        initialField: calcColumnCf,
-      });
-    });
-
-    it('enum_group → enum editor 带 baseField', () => {
-      const { result } = renderHook(() => useCustomFieldEditor());
-      act(() => result.current.openExistingEditor(enumGroupCf, '省份'));
-      expect(result.current.editorOpen).toEqual({
-        kind: 'enum',
-        initialField: enumGroupCf,
-        baseField: 'ShipProvince',
-        baseFieldAlias: '省份',
-      });
-    });
-
-    it('range_group → range editor 带 baseField', () => {
-      const { result } = renderHook(() => useCustomFieldEditor());
-      act(() => result.current.openExistingEditor(rangeGroupCf, '单价'));
-      expect(result.current.editorOpen).toEqual({
-        kind: 'range',
-        initialField: rangeGroupCf,
-        baseField: 'UnitPrice',
-        baseFieldAlias: '单价',
-      });
-    });
-
-    it('enum_group 没传 baseFieldAlias → fallback 到 baseField 自身', () => {
-      const { result } = renderHook(() => useCustomFieldEditor());
-      act(() => result.current.openExistingEditor(enumGroupCf));
-      expect(result.current.editorOpen).toMatchObject({
-        baseFieldAlias: 'ShipProvince',
-      });
-    });
-
-    it('dim_as_measure → no-op(UI 暂无独立编辑器,editor 不开)', () => {
-      const { result } = renderHook(() => useCustomFieldEditor());
-      act(() => result.current.openExistingEditor(dimAsMeasureCf));
-      expect(result.current.editorOpen).toBeNull();
-    });
+  // 2026-05-17 测试瘦身:I5 "openExistingEditor 按 cf.kind 路由"6 case
+  //   已下沉到 core/customFields/deriveEditorOpen.test.ts(I1-I5 不变量全覆盖)。
+  //   hook 层只保留 1 条 wiring:click → setEditorOpen 被同步设置(证明 hook 正确调 core fn)
+  it('I5 wiring: openExistingEditor(calc_measure) → editorOpen 同步更新', () => {
+    const { result } = renderHook(() => useCustomFieldEditor());
+    act(() => result.current.openExistingEditor(calcMeasureCf));
+    expect(result.current.editorOpen).not.toBeNull();
+    expect(result.current.editorOpen!.kind).toBe('expr');
   });
 
   it('I6: closeAll 重置全部 state', () => {

@@ -15,16 +15,14 @@
 
 import { useState, useCallback } from 'react';
 
+import {
+  type EditorKind,
+  type EditorOpenState,
+  deriveEditorOpenFromExisting,
+} from '../core/customFields/deriveEditorOpen.js';
 import type { CustomField } from '../types/viewConfig.js';
 
-export type EditorKind = 'expr' | 'enum' | 'range';
-
-export interface EditorOpenState {
-  kind: EditorKind;
-  initialField?: CustomField;
-  baseField?: string;
-  baseFieldAlias?: string;
-}
+export type { EditorKind, EditorOpenState };
 
 export interface BaseFieldPickerState {
   kind: 'enum' | 'range';
@@ -79,19 +77,11 @@ export function useCustomFieldEditor(): UseCustomFieldEditorResult {
   }, []);
 
   const openExistingEditor = useCallback((cf: CustomField, baseFieldAlias?: string) => {
-    if (cf.kind === 'calc_measure' || cf.kind === 'calc_column') {
-      // 表达式编辑器内部按 cf.kind 决定 calc_measure / calc_column 表单
-      setEditorOpenRaw({ kind: 'expr', initialField: cf });
-    } else if (cf.kind === 'enum_group' || cf.kind === 'range_group') {
-      setEditorOpenRaw({
-        kind: cf.kind === 'enum_group' ? 'enum' : 'range',
-        initialField: cf,
-        baseField: cf.baseField,
-        baseFieldAlias: baseFieldAlias ?? cf.baseField,
-      });
-    }
-    // dim_as_measure 暂无独立编辑器:右键"转度量" picker 即创建即用,
-    // 修改聚合方式 / 重命名当前要先删除再重建。后续 PR 加 inline 重命名 + aggregator 切换。
+    // 2026-05-17:按 cf.kind 路由到 editor modal 的派生规则下沉到
+    //   core/customFields/deriveEditorOpen.ts(I1-I5 不变量)。
+    //   dim_as_measure / 未知 kind 返回 null → 不开 editor。
+    const next = deriveEditorOpenFromExisting(cf, baseFieldAlias);
+    if (next) setEditorOpenRaw(next);
   }, []);
 
   const closeAll = useCallback(() => {

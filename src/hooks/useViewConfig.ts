@@ -17,7 +17,6 @@ import type { Dispatch } from 'react';
 
 import type { DropZone, FieldType } from '../core/dropRules/dropRules.js';
 import { applyDrop } from '../core/viewConfig/applyDrop.js';
-import { getMeasureFieldName as measureFieldNameOf } from '../core/viewConfig/quickCalcs.js';
 import {
   cycleRowSort,
   removeCustomSortOrder,
@@ -35,34 +34,38 @@ import { setFilters } from '../core/viewConfig/setFilters.js';
 import { setMeasureFilters } from '../core/viewConfig/setMeasureFilters.js';
 import { setRowPage } from '../core/viewConfig/setRowPage.js';
 import { swapRowsColumns } from '../core/viewConfig/swapRowsColumns.js';
+import { togglePivotAdhoc } from '../core/viewConfig/togglePivotAdhoc.js';
 import { setValueQuickCalc } from '../core/viewConfig/setValueQuickCalc.js';
+import {
+  MAX_HISTORY,
+  clearHistory as clearHistoryOp,
+  isSignificantAction,
+  pushHistory,
+  redoHistory,
+  undoHistory,
+  type HistoryState,
+} from '../core/viewConfig/historyOps.js';
+import { setValueAggregator } from '../core/viewConfig/setValueAggregator.js';
+import { setDisplayMode } from '../core/viewConfig/setDisplayMode.js';
+import { setDisplayOptions } from '../core/viewConfig/setDisplayOptions.js';
+import { setTotals } from '../core/viewConfig/setTotals.js';
+import { setFieldSubTotal } from '../core/viewConfig/setFieldSubTotal.js';
+import { addDimensionAsValue } from '../core/viewConfig/addDimensionAsValue.js';
+import {
+  addConditionalFormat,
+  removeConditionalFormat,
+  updateConditionalFormat,
+} from '../core/viewConfig/conditionalFormatActions.js';
 import { buildViewConfig } from '../fixtures/builders.js';
 import type { Metadata } from '../types/metadata.js';
 import type { QuickCalculation } from '../types/query.js';
 import type {
   ClientFilter,
-  ColumnField,
   CustomField,
+  CustomRelationConfig,
   ClientMeasureFilter,
-  RowField,
-  Sort,
-  ValueField,
   ViewConfig,
 } from '../types/viewConfig.js';
-
-/**
- * 切到 adhoc 模式前的 pivot 状态快照,存进 viewConfig.extensions[PIVOT_SNAPSHOT_KEY]。
- * 切回 pivot 时按快照还原 rows/columns/values/columnSorts(adhoc 期间的 row 编辑不带回)。
- *
- * 不快照 filters / measureFilters / customFields / rowSorts:这些跨模式延续(用户意图)。
- */
-const PIVOT_SNAPSHOT_KEY = '__pivotSnapshot__';
-interface PivotSnapshot {
-  rows: RowField[];
-  columns: ColumnField[];
-  values: ValueField[];
-  columnSorts: Sort[];
-}
 
 export type ViewConfigAction =
   | { type: 'DRILL_DOWN'; fieldName: string }
@@ -160,6 +163,7 @@ export type ViewConfigAction =
   | { type: 'ADD_CUSTOM_FIELD'; field: CustomField }
   | { type: 'REMOVE_CUSTOM_FIELD'; id: string }
   | { type: 'UPDATE_CUSTOM_FIELD'; field: CustomField }
+  | { type: 'SET_CUSTOM_RELATIONS'; customRelations: CustomRelationConfig[] }
   | {
       /** P5+ 条件格式化 — 加 / 改 / 删 rule(rule.id 是 key) */
       type: 'ADD_CONDITIONAL_FORMAT';
@@ -207,198 +211,53 @@ export function viewConfigReducer(
       });
     case 'SET_ROW_PAGE':
       return setRowPage(state, action.pageNo);
-    case 'SET_TOTALS': {
-      // 部分更新:不传的字段保留 state 中现值
-      const next = { ...state.pageState };
-      if (action.showGrandTotal !== undefined) next.showGrandTotal = action.showGrandTotal;
-      if (action.subTotalAtEnd !== undefined) next.subTotalAtEnd = action.subTotalAtEnd;
-      return { ...state, pageState: next };
-    }
-    case 'SET_DISPLAY_OPTIONS': {
-      // P3 设置面板:批量更新显示选项
-      const next = { ...state.pageState };
-      if (action.compressEmptyRows !== undefined) next.compressEmptyRows = action.compressEmptyRows;
-      if (action.compressEmptyColumns !== undefined) next.compressEmptyColumns = action.compressEmptyColumns;
-      if (action.freezeHeader !== undefined) next.freezeHeader = action.freezeHeader;
-      if (action.freezeRowHeader !== undefined) next.freezeRowHeader = action.freezeRowHeader;
-      if (action.showTotalRowCount !== undefined) next.showTotalRowCount = action.showTotalRowCount;
-      if (action.emptyValueText !== undefined) next.emptyValueText = action.emptyValueText;
-      if (action.rowHeaderMode !== undefined) next.rowHeaderMode = action.rowHeaderMode;
-      if (action.columnHeaderMode !== undefined) next.columnHeaderMode = action.columnHeaderMode;
-      if (action.paginationMode !== undefined) next.paginationMode = action.paginationMode;
-      if (action.exportMaxRows !== undefined) next.exportMaxRows = action.exportMaxRows;
-      return { ...state, pageState: next };
-    }
-    case 'ADD_DIMENSION_AS_VALUE': {
-      // 维度转度量 — 2026-05-07 起统一创建一个 CustomDimAsMeasureField(第 5 种 customField),
-      // 翻译产生 CustomMeasure + measureBinding 元素;values 字段引用 customField.id。
-      // 同 sourceField + 同 aggregator 已有 customField 则复用,不重复建。
-      const existingCf = state.customFields.find(
-        (cf): cf is import('../types/viewConfig.js').CustomDimAsMeasureField =>
-          cf.kind === 'dim_as_measure' &&
-          cf.sourceField === action.fieldName &&
-          cf.aggregator === action.aggregator,
+    case 'SET_TOTALS':
+      // 2026-05-17:下沉到 core/setTotals.ts
+      return setTotals(state, {
+        showGrandTotal: action.showGrandTotal,
+        subTotalAtEnd: action.subTotalAtEnd,
+      });
+    case 'SET_DISPLAY_OPTIONS':
+      // 2026-05-17:批量字段更新下沉到 core/setDisplayOptions.ts(数据驱动)
+      return setDisplayOptions(state, {
+        compressEmptyRows: action.compressEmptyRows,
+        compressEmptyColumns: action.compressEmptyColumns,
+        freezeHeader: action.freezeHeader,
+        freezeRowHeader: action.freezeRowHeader,
+        showTotalRowCount: action.showTotalRowCount,
+        emptyValueText: action.emptyValueText,
+        rowHeaderMode: action.rowHeaderMode,
+        columnHeaderMode: action.columnHeaderMode,
+        paginationMode: action.paginationMode,
+        exportMaxRows: action.exportMaxRows,
+      });
+    case 'ADD_DIMENSION_AS_VALUE':
+      // 2026-05-17:维度转度量(创建 CustomDimAsMeasureField 包装)下沉到 core;
+      //   Date.now/Math.random 通过 mintId 注入,保 core fn 纯
+      return addDimensionAsValue(
+        state,
+        action.fieldName,
+        action.aggregator,
+        () => `dam_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
       );
-      if (existingCf) {
-        // 复用 — 只检查 values 是否已含,否则补一条
-        const hasValue = state.values.some((v) => v.measureName === existingCf.id);
-        if (hasValue) return state;
-        return {
-          ...state,
-          values: [
-            ...state.values,
-            { measureName: existingCf.id, aggregator: null, quickCalc: null },
-          ],
-        };
-      }
-      // 新建 customField
-      const id = `dam_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
-      const newCf: import('../types/viewConfig.js').CustomDimAsMeasureField = {
-        id,
-        // 显示名:`<sourceField>(<AGG>)` — 跟其他自建字段命名风格一致
-        name: `${action.fieldName}(${action.aggregator})`,
-        kind: 'dim_as_measure',
-        sourceField: action.fieldName,
-        aggregator: action.aggregator,
-        dataFormat: '',
-      };
-      return {
-        ...state,
-        customFields: [...state.customFields, newCf],
-        values: [
-          ...state.values,
-          { measureName: id, aggregator: null, quickCalc: null },
-        ],
-      };
-    }
-    case 'SET_VALUE_AGGREGATOR': {
-      // 替换指定 chip 的 aggregator。
-      // 优先按 chipIdx 精确定位(duplicate chip 共享同 chipKey,findIndex 撞了会改错 chip);
-      // 未传 chipIdx → fallback 按 chipKey 找第一个 match(向后兼容老调用 / 单 chip 场景)
-      let idx: number;
-      if (
-        action.chipIdx !== undefined &&
-        action.chipIdx >= 0 &&
-        action.chipIdx < state.values.length &&
-        // 防御:idx 处 chip 必须确实是这个 chipKey,否则 chipIdx 跟 state 不同步(stale)
-        measureFieldNameOf(state.values[action.chipIdx]!) === action.chipKey
-      ) {
-        idx = action.chipIdx;
-      } else {
-        idx = state.values.findIndex((v) => measureFieldNameOf(v) === action.chipKey);
-      }
-      if (idx < 0) return state;
-      const next = state.values.slice();
-      // 设置非 null aggregator → 同时清 quickCalc(互斥,见 setValueQuickCalc 的注释);
-      // null = 清 aggregator override → 不动 quickCalc
-      next[idx] = action.aggregator != null
-        ? { ...next[idx]!, aggregator: action.aggregator, quickCalc: null }
-        : { ...next[idx]!, aggregator: action.aggregator };
-      return { ...state, values: next };
-    }
-    case 'SET_QUERY_MODE': {
-      // queryMode 默认 'pivot'(undefined → 'pivot');同 mode dispatch 是 no-op
-      const currentMode = state.queryMode ?? 'pivot';
-      if (action.mode === currentMode) return state;
-      // adhoc ↔ pivot 双向状态保留:
-      //   pivot → adhoc:快照 (rows/columns/values/columnSorts) 存进 extensions.pivotSnapshot,
-      //                 把 columns+values 全 merge 到 rows
-      //   adhoc → pivot:从快照还原 (rows/columns/values/columnSorts),清快照
-      //                 — adhoc 期间对 row 的修改不带回 pivot(按"两个独立视图"语义)
-      //                 — filters / measureFilters / customFields / rowSorts 保留(意图跨模式延续)
-      if (action.mode === 'adhoc') {
-        const snapshot: PivotSnapshot = {
-          rows: state.rows,
-          columns: state.columns,
-          values: state.values,
-          columnSorts: state.columnSorts,
-        };
-        const moved: RowField[] = [
-          ...state.rows,
-          ...state.columns.map((c) => ({ ...c })),
-          ...state.values.map(
-            (v): RowField => ({ fieldName: v.measureName, type: 'Dimension' }),
-          ),
-        ];
-        // 同 fieldName 去重(保第一次出现位置)
-        const seen = new Set<string>();
-        const dedup = moved.filter((r) => {
-          if (seen.has(r.fieldName)) return false;
-          seen.add(r.fieldName);
-          return true;
-        });
-        // adhoc 不支持图表(没有聚合后数据);displayMode 强制回 'table'
-        const nextPageState =
-          state.pageState.displayMode === 'chart'
-            ? { ...state.pageState, displayMode: 'table' as const }
-            : state.pageState;
-        return {
-          ...state,
-          queryMode: 'adhoc',
-          rows: dedup,
-          columns: [],
-          values: [],
-          columnSorts: [],
-          pageState: nextPageState,
-          extensions: {
-            ...(state.extensions ?? {}),
-            [PIVOT_SNAPSHOT_KEY]: snapshot,
-          },
-        };
-      }
-      // 切回 pivot:从 snapshot 还原(若有);清掉 snapshot
-      const ext = state.extensions ?? {};
-      const snap = ext[PIVOT_SNAPSHOT_KEY] as PivotSnapshot | undefined;
-      if (!snap || typeof snap !== 'object' || !Array.isArray(snap.rows)) {
-        return { ...state, queryMode: 'pivot' };
-      }
-      // strip snapshot from extensions
-      const restExt = Object.fromEntries(
-        Object.entries(ext).filter(([k]) => k !== PIVOT_SNAPSHOT_KEY),
-      );
-      return {
-        ...state,
-        queryMode: 'pivot',
-        rows: snap.rows,
-        columns: snap.columns,
-        values: snap.values,
-        columnSorts: snap.columnSorts,
-        extensions: Object.keys(restExt).length > 0 ? restExt : null,
-      };
-    }
+    case 'SET_VALUE_AGGREGATOR':
+      // 2026-05-17:chipIdx 精确定位 + agg/qc 互斥 全部下沉到 core/setValueAggregator.ts
+      return setValueAggregator(state, action.chipKey, action.chipIdx, action.aggregator);
+    case 'SET_QUERY_MODE':
+      // 2026-05-17:snapshot/restore/merge/displayMode 防御 — 全部下沉到
+      //   core/viewConfig/togglePivotAdhoc.ts(原 ~70 行 reducer 内容 → 1 行调用)
+      return togglePivotAdhoc(state, action.mode);
     case 'SWAP_ROWS_COLUMNS':
       return swapRowsColumns(state);
-    case 'SET_DISPLAY_MODE': {
-      // adhoc 模式下不允许切到 chart(明细无聚合数据,图表无意义)— 防御性挡掉
-      const isAdhoc = (state.queryMode ?? 'pivot') === 'adhoc';
-      if (isAdhoc && action.displayMode === 'chart') return state;
-      const next = { ...state.pageState };
-      if (action.displayMode !== undefined) next.displayMode = action.displayMode;
-      if (action.chartType !== undefined) next.chartType = action.chartType;
-      return { ...state, pageState: next };
-    }
-    case 'SET_FIELD_SUB_TOTAL': {
-      // per-field subTotal:对 row/column 的某个字段切换显示模式
-      // subTotal=undefined 表示清掉(等同 HIDDEN,但更省 query 字段)
-      const updateField = <T extends { fieldName: string; subTotal?: string }>(
-        arr: T[],
-      ): T[] =>
-        arr.map((f) =>
-          f.fieldName === action.fieldName
-            ? action.subTotal === undefined
-              ? // remove subTotal field (rest spread without it)
-                (() => {
-                  const { subTotal: _drop, ...rest } = f as T & { subTotal?: string };
-                  return rest as T;
-                })()
-              : ({ ...f, subTotal: action.subTotal } as T)
-            : f,
-        );
-      if (action.zone === 'row') {
-        return { ...state, rows: updateField(state.rows) };
-      }
-      return { ...state, columns: updateField(state.columns) };
-    }
+    case 'SET_DISPLAY_MODE':
+      // 2026-05-17:adhoc 挡 chart 防御 + displayMode/chartType 更新 → core/setDisplayMode.ts
+      return setDisplayMode(state, {
+        displayMode: action.displayMode,
+        chartType: action.chartType,
+      });
+    case 'SET_FIELD_SUB_TOTAL':
+      // 2026-05-17:per-field subTotal 切换 + 剔除字段语义下沉到 core/setFieldSubTotal.ts
+      return setFieldSubTotal(state, action.zone, action.fieldName, action.subTotal);
     case 'DROP_FIELD':
       return applyDrop(
         state,
@@ -424,35 +283,14 @@ export function viewConfigReducer(
       return applyRemoveCustomField(state, action.id);
     case 'UPDATE_CUSTOM_FIELD':
       return applyUpdateCustomField(state, action.field);
-    case 'ADD_CONDITIONAL_FORMAT': {
-      const list = state.pageState.conditionalFormats ?? [];
-      // 同 id 已存在 → no-op(应该走 UPDATE)
-      if (list.some((r) => r.id === action.rule.id)) return state;
-      return {
-        ...state,
-        pageState: { ...state.pageState, conditionalFormats: [...list, action.rule] },
-      };
-    }
-    case 'UPDATE_CONDITIONAL_FORMAT': {
-      const list = state.pageState.conditionalFormats ?? [];
-      const idx = list.findIndex((r) => r.id === action.rule.id);
-      if (idx === -1) return state; // id 找不到 → no-op
-      const next = [...list];
-      next[idx] = action.rule;
-      return {
-        ...state,
-        pageState: { ...state.pageState, conditionalFormats: next },
-      };
-    }
-    case 'REMOVE_CONDITIONAL_FORMAT': {
-      const list = state.pageState.conditionalFormats ?? [];
-      const next = list.filter((r) => r.id !== action.id);
-      if (next.length === list.length) return state; // 没动 → 引用相等防 re-render
-      return {
-        ...state,
-        pageState: { ...state.pageState, conditionalFormats: next },
-      };
-    }
+    case 'SET_CUSTOM_RELATIONS':
+      return { ...state, customRelations: action.customRelations };
+    case 'ADD_CONDITIONAL_FORMAT':
+      return addConditionalFormat(state, action.rule);
+    case 'UPDATE_CONDITIONAL_FORMAT':
+      return updateConditionalFormat(state, action.rule);
+    case 'REMOVE_CONDITIONAL_FORMAT':
+      return removeConditionalFormat(state, action.id);
     case 'SET_CUSTOM_SORT_ORDER':
       return setCustomSortOrder(
         state,
@@ -495,17 +333,8 @@ export interface ViewConfigHistory {
   clearHistory: () => void;
 }
 
-/** history 上限 — 50 步对 BI 场景足够;超出 shift 最老的 */
-const MAX_HISTORY = 50;
-
-/**
- * 不入 history 的 action 类型(action.type 黑名单):
- *   - SET_ROW_PAGE:翻页是"浏览"不是"编辑",跟 Excel/Tableau 一致
- * 其他所有 action 都入栈(包括 SET — 整体替换也算一步)
- */
-const NON_HISTORY_ACTIONS: ReadonlySet<ViewConfigAction['type']> = new Set([
-  'SET_ROW_PAGE',
-]);
+// 2026-05-17:MAX_HISTORY / NON_HISTORY_ACTIONS / push/undo/redo/clear 操作
+//   全部下沉到 core/viewConfig/historyOps.ts(I1-I5 不变量 + 15 case 覆盖)
 
 export function useViewConfig(
   options: UseViewConfigOptions,
@@ -521,7 +350,7 @@ export function useViewConfig(
 
   // P5+ 历史栈:past(undo 拉这个)+ future(redo 拉这个)
   // 不存 current — current 始终是 viewConfig(controlled 走 value,uncontrolled 走 internalState)
-  const [history, setHistory] = useState<{ past: ViewConfig[]; future: ViewConfig[] }>(
+  const [history, setHistory] = useState<HistoryState<ViewConfig>>(
     () => ({ past: [], future: [] }),
   );
 
@@ -537,11 +366,8 @@ export function useViewConfig(
         setInternalState(next);
       }
       // 入 history(黑名单除外);任何"新"编辑都清空 redo 栈(经典编辑器行为)
-      if (!NON_HISTORY_ACTIONS.has(action.type)) {
-        setHistory((h) => ({
-          past: [...h.past, currentSource].slice(-MAX_HISTORY),
-          future: [],
-        }));
+      if (isSignificantAction(action.type)) {
+        setHistory((h) => pushHistory(h, currentSource, MAX_HISTORY));
       }
     },
     [value, internalState, onChange, metadata],
@@ -551,44 +377,33 @@ export function useViewConfig(
   const currentState = isControlledRef.current ? (value ?? internalState) : internalState;
 
   const undo = useCallback(() => {
-    if (history.past.length === 0) return;
-    const prev = history.past[history.past.length - 1]!;
     const currentSource = isControlledRef.current ? (value ?? internalState) : internalState;
-    onChange?.(prev);
-    if (!isControlledRef.current) {
-      setInternalState(prev);
-    }
-    setHistory({
-      past: history.past.slice(0, -1),
-      future: [currentSource, ...history.future].slice(0, MAX_HISTORY),
-    });
+    const res = undoHistory(history, currentSource, MAX_HISTORY);
+    if (!res) return;
+    onChange?.(res.restored);
+    if (!isControlledRef.current) setInternalState(res.restored);
+    setHistory(res.next);
   }, [history, value, internalState, onChange]);
 
   const redo = useCallback(() => {
-    if (history.future.length === 0) return;
-    const next = history.future[0]!;
     const currentSource = isControlledRef.current ? (value ?? internalState) : internalState;
-    onChange?.(next);
-    if (!isControlledRef.current) {
-      setInternalState(next);
-    }
-    setHistory({
-      past: [...history.past, currentSource].slice(-MAX_HISTORY),
-      future: history.future.slice(1),
-    });
+    const res = redoHistory(history, currentSource, MAX_HISTORY);
+    if (!res) return;
+    onChange?.(res.restored);
+    if (!isControlledRef.current) setInternalState(res.restored);
+    setHistory(res.next);
   }, [history, value, internalState, onChange]);
 
   const clearHistory = useCallback(() => {
-    setHistory({ past: [], future: [] });
+    setHistory(clearHistoryOp());
   }, []);
 
   // 数据源切换(metadata.id 变化)→ 自动清空 history
-  // 跨数据源的老 history 字段名不通用,撤销没意义
   const prevMetadataIdRef = useRef<string | undefined>(metadata?.id);
   useEffect(() => {
     const nextId = metadata?.id;
     if (prevMetadataIdRef.current !== undefined && prevMetadataIdRef.current !== nextId) {
-      setHistory({ past: [], future: [] });
+      setHistory(clearHistoryOp());
     }
     prevMetadataIdRef.current = nextId;
   }, [metadata?.id]);

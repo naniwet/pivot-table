@@ -21,6 +21,7 @@ import { useMemo } from 'react';
 
 import type { ContextMenuItem } from '../components/ContextMenu/ContextMenu.js';
 import type { MetadataIndex } from '../core/metadata/fieldIndex.js';
+import { addMemberToFilter } from '../core/viewConfig/addMemberToFilter.js';
 import type { ClientFilter } from '../types/viewConfig.js';
 
 export interface MemberContextMenuTarget {
@@ -40,55 +41,8 @@ export interface UseMemberContextMenuOptions {
   onChangeFilters: (filters: ClientFilter[]) => void;
 }
 
-/**
- * 把 fieldName + member 加进 filter tree:
- *   - 同 field + 同 op 已存在 leaf → 把 member 追加到 value(数组化)
- *   - 否则在顶层加新 leaf
- */
-function addMemberToFilter(
-  filters: ClientFilter[],
-  fieldName: string,
-  memberName: string,
-  op: 'In' | 'NotIn',
-): ClientFilter[] {
-  // 找现有同 field + 同 op 的 leaf
-  let foundIdx = -1;
-  filters.forEach((f, i) => {
-    if (
-      f.kind === 'leaf' &&
-      (f as { field: string }).field === fieldName &&
-      (f as { operator: string }).operator === op
-    ) {
-      foundIdx = i;
-    }
-  });
-
-  if (foundIdx >= 0) {
-    // 合并到现有 leaf 的 value 数组
-    const existing = filters[foundIdx] as { value: unknown };
-    const oldValue = existing.value;
-    const arr = Array.isArray(oldValue)
-      ? oldValue.includes(memberName)
-        ? oldValue
-        : [...oldValue, memberName]
-      : oldValue == null || oldValue === ''
-        ? [memberName]
-        : [oldValue, memberName];
-    const next = [...filters];
-    next[foundIdx] = { ...filters[foundIdx], value: arr } as ClientFilter;
-    return next;
-  }
-
-  return [
-    ...filters,
-    {
-      kind: 'leaf',
-      field: fieldName,
-      operator: op,
-      value: [memberName],
-    } as ClientFilter,
-  ];
-}
+// 2026-05-17:addMemberToFilter 整段下沉到 core/viewConfig/addMemberToFilter.ts
+// (含 I1-I6 合并/去重/跨 op/单值升数组 全部不变量)
 
 export function useMemberContextMenu(opts: UseMemberContextMenuOptions): ContextMenuItem[] {
   const { memberContextMenu, filters, metaIndex, onChangeFilters } = opts;

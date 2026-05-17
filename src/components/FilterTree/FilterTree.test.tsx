@@ -133,40 +133,11 @@ describe('FilterTree — leaf 渲染 + 编辑', () => {
     expect(onChange).toHaveBeenCalledWith([{ field: 'A', value: 'new' }]);
   });
 
-  it('删除 leaf → onChange 收到去掉该 leaf 的数组', () => {
-    const tree: TreeNode<SimpleLeaf>[] = [
-      { field: 'A', value: '1' },
-      { field: 'B', value: '2' },
-    ];
-    const onChange = vi.fn();
-    render(
-      <FilterTree<SimpleLeaf>
-        tree={tree}
-        onChange={onChange}
-        renderLeaf={renderLeaf}
-        fieldDropToLeaf={fieldDropToLeaf}
-      />,
-    );
-    fireEvent.click(screen.getByTestId('filter-tree-remove-0'));
-    expect(onChange).toHaveBeenCalledWith([{ field: 'B', value: '2' }]);
-  });
-
-  it('"拆分"按钮 → leaf 升格为 OR group(原 leaf 变为唯一 child)', () => {
-    const tree: TreeNode<SimpleLeaf>[] = [{ field: 'A', value: '1' }];
-    const onChange = vi.fn();
-    render(
-      <FilterTree<SimpleLeaf>
-        tree={tree}
-        onChange={onChange}
-        renderLeaf={renderLeaf}
-        fieldDropToLeaf={fieldDropToLeaf}
-      />,
-    );
-    fireEvent.click(screen.getByTestId('filter-tree-wrap-0'));
-    expect(onChange).toHaveBeenCalledWith([
-      { kind: 'group', op: 'Or', children: [{ field: 'A', value: '1' }] },
-    ]);
-  });
+  // 2026-05-17 测试瘦身(docs/testing-strategy.md §40):
+  //   - 删 leaf → 等价 core `removeAt`(filterTree.test.ts:70-100,4 case)
+  //   - 拆分 → 等价 core `wrapLeafInGroup`(filterTree.test.ts:122-146,3 case)
+  //   两条 it 都是 click → 核 fn → onChange 的纯透传,组件无额外逻辑;
+  //   组件层"click 触发回调"的 wiring 由上方 "改 value 触发 onChange" 已证
 });
 
 describe('FilterTree — group 渲染 + op 切换 + 加子条件', () => {
@@ -194,64 +165,10 @@ describe('FilterTree — group 渲染 + op 切换 + 加子条件', () => {
     expect(screen.getByTestId('leaf-field-0-1')).toHaveTextContent('B');
   });
 
-  it('切 op Or → And', () => {
-    const tree: TreeNode<SimpleLeaf>[] = [
-      {
-        kind: 'group',
-        op: 'Or',
-        children: [
-          { field: 'A', value: '1' },
-          { field: 'B', value: '2' },
-        ],
-      },
-    ];
-    const onChange = vi.fn();
-    render(
-      <FilterTree<SimpleLeaf>
-        tree={tree}
-        onChange={onChange}
-        renderLeaf={renderLeaf}
-        fieldDropToLeaf={fieldDropToLeaf}
-      />,
-    );
-    fireEvent.change(screen.getByTestId('filter-tree-op-0'), { target: { value: 'And' } });
-    expect(onChange).toHaveBeenCalledWith([
-      expect.objectContaining({ kind: 'group', op: 'And' }),
-    ]);
-  });
-
-  it('newLeafTemplate 提供 → group header 有"+ 加子条件",点击追加 leaf', () => {
-    const tree: TreeNode<SimpleLeaf>[] = [
-      {
-        kind: 'group',
-        op: 'Or',
-        children: [
-          { field: 'A', value: '1' },
-          { field: 'B', value: '2' },
-        ],
-      },
-    ];
-    const onChange = vi.fn();
-    render(
-      <FilterTree<SimpleLeaf>
-        tree={tree}
-        onChange={onChange}
-        renderLeaf={renderLeaf}
-        fieldDropToLeaf={fieldDropToLeaf}
-        newLeafTemplate={() => ({ field: 'A', value: '' })}
-      />,
-    );
-    fireEvent.click(screen.getByTestId('filter-tree-add-0'));
-    expect(onChange).toHaveBeenCalledWith([
-      expect.objectContaining({
-        children: expect.arrayContaining([
-          { field: 'A', value: '1' },
-          { field: 'B', value: '2' },
-          { field: 'A', value: '' },
-        ]),
-      }),
-    ]);
-  });
+  // 2026-05-17 测试瘦身:
+  //   - 切 op Or→And → 等价 core `setGroupOp`(filterTree.test.ts:107-119)
+  //   - "+ 加子条件" → 等价 core `addLeaf` with path(filterTree.test.ts:38-67)
+  //   两条 it 是 form/click → 核 fn → onChange 透传
 
   it('drop 字段到 group → 追加到该 group children(不是根 sibling)', () => {
     const tree: TreeNode<SimpleLeaf>[] = [
@@ -289,29 +206,8 @@ describe('FilterTree — group 渲染 + op 切换 + 加子条件', () => {
     ]);
   });
 
-  it('删除 group 内 leaf,剩 1 child → group 自动降级为 leaf(filterTree 纯函数行为)', () => {
-    const tree: TreeNode<SimpleLeaf>[] = [
-      {
-        kind: 'group',
-        op: 'Or',
-        children: [
-          { field: 'A', value: '1' },
-          { field: 'B', value: '2' },
-        ],
-      },
-    ];
-    const onChange = vi.fn();
-    render(
-      <FilterTree<SimpleLeaf>
-        tree={tree}
-        onChange={onChange}
-        renderLeaf={renderLeaf}
-        fieldDropToLeaf={fieldDropToLeaf}
-      />,
-    );
-    fireEvent.click(screen.getByTestId('filter-tree-remove-0-1'));
-    expect(onChange).toHaveBeenCalledWith([{ field: 'A', value: '1' }]);
-  });
+  // 2026-05-17 测试瘦身:group 内删剩 1 → 自动降级 — 等价 core
+  //   `removeAt` 降级语义(filterTree.test.ts:91)
 });
 
 describe('FilterTree — 根级"+ 添加条件"按钮', () => {
@@ -345,7 +241,10 @@ describe('FilterTree — 根级"+ 添加条件"按钮', () => {
 });
 
 describe('FilterTree — 内部节点拖拽移动', () => {
-  it('leaf 拖到 group → moveNode 到该 group children', () => {
+  // 2026-05-17 测试瘦身:moveNode 的输出形状(append 到 group / 降级 / 跨 group / 防环)
+  //   已在 core filterTree.test.ts 全覆盖。组件层只验"内部 drop 事件触发 → onChange 被调
+  //   (说明 sourcePath/destPath 解析正确传给了 core fn)"。
+  it('内部 drop event → onChange 被调一次(wiring smoke — 形状由 core moveNode 证)', () => {
     const tree: TreeNode<SimpleLeaf>[] = [
       { field: 'A', value: '1' },
       {
@@ -366,50 +265,8 @@ describe('FilterTree — 内部节点拖拽移动', () => {
         fieldDropToLeaf={fieldDropToLeaf}
       />,
     );
-    // 把 [0](leaf A)拖到 [1](group)
     fireInternalDropEvent(screen.getByTestId('filter-tree-group-1'), [0]);
     expect(onChange).toHaveBeenCalledTimes(1);
-    expect(onChange).toHaveBeenCalledWith([
-      {
-        kind: 'group',
-        op: 'Or',
-        children: [
-          { field: 'B', value: '2' },
-          { field: 'C', value: '3' },
-          { field: 'A', value: '1' },
-        ],
-      },
-    ]);
-  });
-
-  it('group 内 leaf 拖到根容器 → moveNode 到根末尾(group 自动降级)', () => {
-    const tree: TreeNode<SimpleLeaf>[] = [
-      {
-        kind: 'group',
-        op: 'Or',
-        children: [
-          { field: 'A', value: '1' },
-          { field: 'B', value: '2' },
-        ],
-      },
-    ];
-    const onChange = vi.fn();
-    render(
-      <FilterTree<SimpleLeaf>
-        tree={tree}
-        onChange={onChange}
-        renderLeaf={renderLeaf}
-        fieldDropToLeaf={fieldDropToLeaf}
-      />,
-    );
-    // 把 [0,0](group 内 leaf A)拖到根容器
-    fireInternalDropEvent(screen.getByTestId('filter-tree'), [0, 0]);
-    expect(onChange).toHaveBeenCalledTimes(1);
-    // group 删 child[0] 后只剩 1 child → 降级为 leaf B;然后根末尾 append leaf A
-    expect(onChange).toHaveBeenCalledWith([
-      { field: 'B', value: '2' },
-      { field: 'A', value: '1' },
-    ]);
   });
 
   it('跨 treeId 的内部节点 payload 被拒绝(防 dim ↔ measure 互拖)', () => {

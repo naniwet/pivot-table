@@ -73,69 +73,17 @@ describe('DropZones — rendering', () => {
     expect(within(valueZone).getByText('销售额')).toBeInTheDocument();
   });
 
-  // 2026-05-16:回归测试 — quickCalc 字符串形态(GroupRankDescending)的 chip
-  // label 必须显示"字段名（快速计算名）",跟汇总依据格式一致。
-  // 之前 bug:代码用 `quickCalc._enum` 访问,字符串形态拿不到,后缀丢失。
-  it('value chip 带 quickCalc(字符串形态)→ label 显示"销售额（分组排名（从大到小））"', () => {
-    const vc = buildViewConfig({
-      values: [
-        buildValueField({ measureName: FIELD_IDS.salesMeasure, quickCalc: 'GroupRankDescending' }),
-      ],
-    });
-    render(
-      <DropZones
-        viewConfig={vc}
-        metadata={orderModelMetadata}
-        onDrop={vi.fn()}
-        onRemove={vi.fn()}
-      />,
-    );
-    const valueZone = screen.getByTestId('zone-value');
-    // 全角括号 + quickCalc label 拼在 measure alias 后(formatMeasureDisplayLabel)
-    expect(within(valueZone).getByText(/销售额（分组排名(?:（|（).*）/)).toBeInTheDocument();
-  });
-
-  it('value chip 带 quickCalc + aggregator → label 显示"销售额（平均值, 占分组 %）"', () => {
-    const vc = buildViewConfig({
-      values: [
-        buildValueField({
-          measureName: FIELD_IDS.salesMeasure,
-          aggregator: 'AVG',
-          quickCalc: 'GroupPercent',
-        }),
-      ],
-    });
-    render(
-      <DropZones
-        viewConfig={vc}
-        metadata={orderModelMetadata}
-        onDrop={vi.fn()}
-        onRemove={vi.fn()}
-      />,
-    );
-    const valueZone = screen.getByTestId('zone-value');
-    // 顺序固定:aggregator 在前,quickCalc 在后
-    expect(within(valueZone).getByText('销售额（平均值, 占分组 %）')).toBeInTheDocument();
-  });
+  // 2026-05-17 测试瘦身:quickCalc 标签格式 / 字符串形态 → label 解析 全链路已在 core 覆盖:
+  //   - quickCalcs.test.ts:103 findQuickCalcOption('GroupPercent').label === '占分组 %'
+  //   - quickCalcs.test.ts:116 getValueQuickCalcLabel(values, '销售额') === '占分组 %'
+  //   - quickCalcs.test.ts:140-159 formatMeasureDisplayLabel(agg + qc 组合)
+  // 组件层不再重复;真正的 wiring 由 "value chip 渲染 alias" 上方已覆盖
 });
 
 describe('DropZones — drag highlighting', () => {
-  it('marks data-can-drop on each zone according to canDrop(draggingFieldType, zone)', () => {
-    render(
-      <DropZones
-        viewConfig={buildViewConfig()}
-        metadata={orderModelMetadata}
-        draggingFieldType="Hierarchy"
-        onDrop={vi.fn()}
-        onRemove={vi.fn()}
-      />,
-    );
-    expect(screen.getByTestId('zone-row')).toHaveAttribute('data-can-drop', 'true');
-    expect(screen.getByTestId('zone-column')).toHaveAttribute('data-can-drop', 'true');
-    expect(screen.getByTestId('zone-value')).toHaveAttribute('data-can-drop', 'false');
-    expect(screen.getByTestId('zone-filter')).toHaveAttribute('data-can-drop', 'true'); // P1.0 开放
-  });
-
+  // 2026-05-17:canDrop 矩阵已在 core dropRules.test.ts:14 用 it.each 全覆盖 —
+  //   组件层不再重复"Hierarchy 在 row/column=true、value=false、filter=true"细节;
+  //   下方 "omits data-can-drop" + "shows reason tooltip" 已经够证明 wiring(读 canDrop 渲染 attr)
   it('omits data-can-drop when no drag in progress', () => {
     render(
       <DropZones
@@ -348,33 +296,8 @@ describe('DropZones — zone 间互拖 (P2)', () => {
     expect(onTagDragStart).toHaveBeenCalledWith('Dimension');
   });
 
-  it('tag 上 dragstart 写入 PIVOT_FIELD_MIME 数据（zone 间互拖核心机制）', () => {
-    const vc = buildViewConfig({
-      values: [buildValueField({ measureName: 'sales' })],
-    });
-    render(
-      <DropZones
-        viewConfig={vc}
-        metadata={orderModelMetadata}
-        onDrop={vi.fn()}
-        onRemove={vi.fn()}
-        onTagDragStart={vi.fn()}
-      />,
-    );
-    const tag = document.querySelector('[data-field-tag="sales"]')!;
-    let captured: { type: string; data: string } | null = null;
-    const setData = (type: string, data: string) => {
-      captured = { type, data };
-    };
-    // 模拟 dataTransfer
-    fireEvent.dragStart(tag, {
-      dataTransfer: { setData, effectAllowed: 'move' },
-    });
-    expect(captured).not.toBeNull();
-    expect(captured!.data).toContain('sales');
-    expect(captured!.data).toContain('Measure');
-  });
-
+  // 2026-05-17:PIVOT_FIELD_MIME 编/解码 round-trip 已在 core
+  //   dragProtocol.test.ts:38 覆盖。组件层只验"dragstart → onTagDragStart 被调"(上一条已做)
   it('row tag draggable=true（zone 间互拖前提）', () => {
     const vc = buildViewConfig({
       rows: [{ fieldName: 'A', type: 'Dimension' }],
@@ -479,7 +402,9 @@ describe('DropZones — chip 排序状态箭头 (P2)', () => {
     expect(arrow).toHaveTextContent('↓');
   });
 
-  it('度量字段 BASC → chip 显示 ↑组', () => {
+  // 2026-05-16:B 前缀 = Break grouping = 全局排序(语义跟旧 label "组"反了)
+  // 现在 BASC 应显示 "↑全"(打散分组,全表按值排)
+  it('度量字段 BASC → chip 显示 ↑全(全局,打散分组)', () => {
     const vc = buildViewConfig({
       values: [buildValueField({ measureName: 'sales' })],
       rowSorts: [{ type: 'ByMeasure', measureName: 'sales', direction: 'BASC' }],
@@ -493,7 +418,7 @@ describe('DropZones — chip 排序状态箭头 (P2)', () => {
       />,
     );
     const arrow = screen.getByTestId('tag-sort-sales');
-    expect(arrow).toHaveTextContent('↑组');
+    expect(arrow).toHaveTextContent('↑全');
   });
 });
 
@@ -684,24 +609,8 @@ describe('DropZones — P5+ duplicate chip 视觉警告', () => {
     expect(warnings).toHaveLength(1);
   });
 
-  it('value 区同 measure 不同 agg → 不标 duplicate', () => {
-    const vc = buildViewConfig({
-      values: [
-        buildValueField({ measureName: FIELD_IDS.salesMeasure }),
-        buildValueField({ measureName: FIELD_IDS.salesMeasure, aggregator: 'AVG' }),
-      ],
-    });
-    render(
-      <DropZones
-        viewConfig={vc}
-        metadata={orderModelMetadata}
-        onDrop={vi.fn()}
-        onRemove={vi.fn()}
-      />,
-    );
-    const valueZone = screen.getByTestId('zone-value');
-    expect(within(valueZone).queryByText('⚠')).toBeNull();
-  });
+  // 2026-05-17:dedup 负向 case(同 measure 不同 agg → 不重复)已在 core
+  //   findDuplicates.test.ts:116 覆盖 — 组件层不再重复(上方两条 643/669 已证 DOM 标记 wiring)
 
   // 用户回归场景:value 区三 chip(销售额 + 销售额(AVG) + 销售额)→
   // 第 1 和第 3 同 encoded name,以前因 React key 碰撞,第 3 个 chip 复用第 1 个 DOM →
